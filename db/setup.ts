@@ -1,21 +1,31 @@
+import { execSync } from "child_process"
 import { db } from "./client"
 import { users, templates, settings } from "./schema"
 import { eq } from "drizzle-orm"
 import bcrypt from "bcryptjs"
 
-async function seed() {
+async function setup() {
+  console.log("Step 1: Pushing schema to database...")
+  try {
+    execSync("npx drizzle-kit push", { stdio: "inherit" })
+  } catch (e) {
+    console.error("Push failed. If tables already exist, this is fine.")
+  }
+
+  console.log("\nStep 2: Seeding default data...")
+
   // Create admin user if not exists
   const adminExists = db.select().from(users).where(eq(users.email, "admin@atis.local")).get()
   if (!adminExists) {
-    await db.insert(users).values({
+    db.insert(users).values({
       email: "admin@atis.local",
       name: "System Administrator",
       passwordHash: await bcrypt.hash("admin123", 10),
       role: "admin",
-    })
-    console.log("Admin user created: admin@atis.local / admin123")
+    }).run()
+    console.log("  Admin user created: admin@atis.local / admin123")
   } else {
-    console.log("Admin user already exists")
+    console.log("  Admin user already exists")
   }
 
   // Create default templates if none exist
@@ -30,28 +40,31 @@ async function seed() {
       { name: "Research Report", type: "research", config: JSON.stringify({ logo: "/logo.png", primaryColor: "#4f46e5", font: "Inter", watermark: false }) },
       { name: "Donor Brief", type: "donor", config: JSON.stringify({ logo: "/logo.png", primaryColor: "#db2777", font: "Inter", watermark: false }) },
     ]
-    await db.insert(templates).values(defaultTemplates.map(t => ({ ...t, createdBy: 1 })))
-    console.log("Default templates created")
+    db.insert(templates).values(defaultTemplates.map(t => ({ ...t, createdBy: 1 }))).run()
+    console.log("  Default templates created")
   } else {
-    console.log("Templates already exist")
+    console.log("  Templates already exist")
   }
 
   // Create invite code setting if not exists
   const inviteSetting = db.select().from(settings).where(eq(settings.key, "invite_code")).get()
   if (!inviteSetting) {
-    await db.insert(settings).values({
+    db.insert(settings).values({
       key: "invite_code",
       value: process.env.REGISTRATION_INVITE_CODE || "ATIS2024SECURE99",
-    })
-    console.log("Invite code setting created")
+    }).run()
+    console.log("  Invite code setting created")
   } else {
-    console.log("Invite code setting already exists")
+    console.log("  Invite code setting already exists")
   }
 
-  console.log("\nSeed complete! You can now log in with:")
-  console.log("  Email: admin@atis.local")
+  console.log("\nSetup complete!")
+  console.log("  Login: admin@atis.local")
   console.log("  Password: admin123")
-  console.log("\nChange the password immediately after first login.")
+  console.log("  Change password immediately after first login.")
 }
 
-seed().catch(console.error)
+setup().catch((err) => {
+  console.error("Setup failed:", err)
+  process.exit(1)
+})

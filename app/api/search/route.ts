@@ -4,6 +4,10 @@ import { evidence, stories, entities, researchTasks, generatedBriefs, timelineEv
 import { like, or, desc, sql } from "drizzle-orm"
 import { requireAuth } from "@/lib/auth"
 
+function escapeLikePattern(str: string): string {
+  return str.replace(/[%_]/g, "\$&")
+}
+
 export async function GET(request: NextRequest) {
   try {
     const user = await requireAuth()
@@ -16,11 +20,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ results: [] })
     }
 
+    const pattern = `%${escapeLikePattern(q)}%`
     const results: Array<{ type: string; id: number; title: string; snippet: string; date: string }> = []
 
     if (type === "all" || type === "evidence") {
       const items = db.select().from(evidence)
-        .where(or(like(evidence.title, `%${q}%`), like(evidence.summary, `%${q}%`), like(evidence.tags, `%${q}%`)))
+        .where(or(
+          sql`${evidence.title} LIKE ${pattern} ESCAPE '\'`,
+          sql`${evidence.summary} LIKE ${pattern} ESCAPE '\'`,
+          sql`${evidence.tags} LIKE ${pattern} ESCAPE '\'`
+        ))
         .limit(limit)
         .all()
       items.forEach((item) => results.push({ type: "evidence", id: item.id, title: item.title, snippet: item.summary.slice(0, 200), date: item.createdAt }))
@@ -28,7 +37,10 @@ export async function GET(request: NextRequest) {
 
     if (type === "all" || type === "stories") {
       const items = db.select().from(stories)
-        .where(or(like(stories.title, `%${q}%`), like(stories.overview, `%${q}%`)))
+        .where(or(
+          sql`${stories.title} LIKE ${pattern} ESCAPE '\'`,
+          sql`${stories.overview} LIKE ${pattern} ESCAPE '\'`
+        ))
         .limit(limit)
         .all()
       items.forEach((item) => results.push({ type: "story", id: item.id, title: item.title, snippet: item.overview.slice(0, 200), date: item.updatedAt }))
@@ -36,7 +48,10 @@ export async function GET(request: NextRequest) {
 
     if (type === "all" || type === "entities") {
       const items = db.select().from(entities)
-        .where(or(like(entities.name, `%${q}%`), like(entities.aliases, `%${q}%`)))
+        .where(or(
+          sql`${entities.name} LIKE ${pattern} ESCAPE '\'`,
+          sql`${entities.aliases} LIKE ${pattern} ESCAPE '\'`
+        ))
         .limit(limit)
         .all()
       items.forEach((item) => results.push({ type: "entity", id: item.id, title: item.name, snippet: `${item.type} — ${item.aliases.slice(0, 100)}`, date: item.createdAt }))
@@ -44,7 +59,7 @@ export async function GET(request: NextRequest) {
 
     if (type === "all" || type === "tasks") {
       const items = db.select().from(researchTasks)
-        .where(like(researchTasks.objective, `%${q}%`))
+        .where(sql`${researchTasks.objective} LIKE ${pattern} ESCAPE '\'`)
         .limit(limit)
         .all()
       items.forEach((item) => results.push({ type: "task", id: item.id, title: item.objective.slice(0, 80), snippet: `Priority: ${item.priority} | Status: ${item.status}`, date: item.createdAt }))
@@ -52,7 +67,7 @@ export async function GET(request: NextRequest) {
 
     if (type === "all" || type === "briefs") {
       const items = db.select().from(generatedBriefs)
-        .where(like(generatedBriefs.headline, `%${q}%`))
+        .where(sql`${generatedBriefs.headline} LIKE ${pattern} ESCAPE '\'`)
         .limit(limit)
         .all()
       items.forEach((item) => results.push({ type: "brief", id: item.id, title: item.headline, snippet: `Version ${item.version} | ${item.generationMode}`, date: item.createdAt }))
@@ -60,7 +75,10 @@ export async function GET(request: NextRequest) {
 
     if (type === "all" || type === "timeline") {
       const items = db.select().from(timelineEvents)
-        .where(or(like(timelineEvents.title, `%${q}%`), like(timelineEvents.description, `%${q}%`)))
+        .where(or(
+          sql`${timelineEvents.title} LIKE ${pattern} ESCAPE '\'`,
+          sql`${timelineEvents.description} LIKE ${pattern} ESCAPE '\'`
+        ))
         .limit(limit)
         .all()
       items.forEach((item) => results.push({ type: "timeline", id: item.id, title: item.title, snippet: item.description.slice(0, 200), date: item.date }))

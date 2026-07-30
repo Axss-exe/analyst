@@ -30,6 +30,7 @@ export default function StoryDetailPage() {
   const router = useRouter()
   const id = params.id as string
   const [data, setData] = useState<StoryDetail | null>(null)
+  const [error, setError] = useState<string>("")
   const [loading, setLoading] = useState(true)
   const [genMode, setGenMode] = useState("full")
   const [genLoading, setGenLoading] = useState(false)
@@ -43,16 +44,53 @@ export default function StoryDetailPage() {
   }, [id])
 
   const fetchStory = async () => {
-    const res = await fetch(`/api/stories/${id}`)
-    const d = await res.json()
-    setData(d)
-    setLoading(false)
+    try {
+      setError("")
+      const res = await fetch(`/api/stories/${id}`)
+      const d = await res.json()
+
+      if (!res.ok || d.error) {
+        setError(d.error || "Failed to load story")
+        setData(null)
+        setLoading(false)
+        return
+      }
+
+      // Validate response shape
+      if (!d.story || typeof d.story !== "object") {
+        setError("Invalid story data received")
+        setData(null)
+        setLoading(false)
+        return
+      }
+
+      setData({
+        story: d.story,
+        evidence: d.evidence || [],
+        timelineEvents: d.timelineEvents || [],
+        tasks: d.tasks || [],
+        briefs: d.briefs || [],
+        entities: d.entities || [],
+        relationships: d.relationships || [],
+      })
+      setLoading(false)
+    } catch (e) {
+      setError("Network error loading story")
+      setData(null)
+      setLoading(false)
+    }
   }
 
   const fetchAllEvidence = async () => {
-    const res = await fetch("/api/evidence?limit=500")
-    const d = await res.json()
-    setAllEvidence(d.evidence || [])
+    try {
+      const res = await fetch("/api/evidence?limit=500")
+      const d = await res.json()
+      if (res.ok && d.evidence) {
+        setAllEvidence(d.evidence)
+      }
+    } catch {
+      // silent
+    }
   }
 
   const handleGenerateBrief = async () => {
@@ -69,33 +107,53 @@ export default function StoryDetailPage() {
       })
       if (res.ok) {
         fetchStory()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.error || "Failed to generate brief")
       }
     } catch {
-      // silent
+      alert("Network error generating brief")
     }
     setGenLoading(false)
   }
 
   const handleLinkEvidence = async (evidenceId: number) => {
-    await fetch(`/api/stories/${id}/evidence`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ evidenceId, confidence: 0.8, relationshipType: "manual" }),
-    })
+    try {
+      const res = await fetch(`/api/stories/${id}/evidence`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ evidenceId, confidence: 0.8, relationshipType: "manual" }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        alert(err.error || "Failed to link evidence")
+      }
+    } catch {
+      alert("Network error linking evidence")
+    }
     setLinkDialogOpen(false)
     fetchStory()
   }
 
   const handleUnlinkEvidence = async (evidenceId: number) => {
     if (!confirm("Remove this evidence from the story?")) return
-    await fetch(`/api/stories/${id}/evidence?evidenceId=${evidenceId}`, { method: "DELETE" })
-    fetchStory()
+    try {
+      await fetch(`/api/stories/${id}/evidence?evidenceId=${evidenceId}`, { method: "DELETE" })
+      fetchStory()
+    } catch {
+      alert("Failed to unlink evidence")
+    }
   }
 
   const handleDelete = async () => {
     if (!confirm("Delete this story? This cannot be undone.")) return
-    const res = await fetch(`/api/stories/${id}`, { method: "DELETE" })
-    if (res.ok) router.push("/stories")
+    try {
+      const res = await fetch(`/api/stories/${id}`, { method: "DELETE" })
+      if (res.ok) router.push("/stories")
+      else alert("Failed to delete story")
+    } catch {
+      alert("Network error deleting story")
+    }
   }
 
   if (loading) {
@@ -108,11 +166,11 @@ export default function StoryDetailPage() {
     )
   }
 
-  if (!data) {
+  if (error || !data) {
     return (
       <AppShell>
         <div className="flex h-96 flex-col items-center justify-center gap-4">
-          <p className="text-muted-foreground">Story not found</p>
+          <p className="text-muted-foreground">{error || "Story not found"}</p>
           <Link href="/stories"><Button variant="outline"><ArrowLeft className="mr-1 h-4 w-4" /> Back to Stories</Button></Link>
         </div>
       </AppShell>
@@ -239,7 +297,7 @@ export default function StoryDetailPage() {
                         <Link href={`/evidence/${ev.id}`} className="text-sm font-medium hover:text-primary">
                           {ev.title}
                         </Link>
-                        <p className="text-xs text-muted-foreground mt-0.5">{ev.source} | Confidence: {(ev.junction.confidence * 100).toFixed(0)}%</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{ev.source} | Confidence: {(ev.junction?.confidence * 100)?.toFixed(0) || "N/A"}%</p>
                       </div>
                       <div className="flex gap-1">
                         <Link href={`/evidence/${ev.id}`}>

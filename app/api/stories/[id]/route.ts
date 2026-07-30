@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/db/client"
 import { stories, evidence, storyEvidence, entities, evidenceEntities, timelineEvents, researchTasks, generatedBriefs, relationships } from "@/db/schema"
-import { eq, desc, sql } from "drizzle-orm"
+import { eq, desc, sql, inArray } from "drizzle-orm"
 import { requireAuth, requireAdmin } from "@/lib/auth"
 import { logAction } from "@/lib/audit"
 
@@ -22,22 +22,22 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       .all()
 
     const events = db.select().from(timelineEvents).where(eq(timelineEvents.storyId, id)).orderBy(timelineEvents.date).all()
-    const tasks = db.select().from(researchTasks).where(sql`${researchTasks.objective} LIKE '%story:${id}%'`).all()
+    const tasks = db.select().from(researchTasks).where(sql`${researchTasks.objective} LIKE ${"%story:" + id + "%"}`).all()
     const briefs = db.select().from(generatedBriefs).where(eq(generatedBriefs.storyId, id)).orderBy(desc(generatedBriefs.createdAt)).all()
 
     const evidenceIds = linkedEvidence.map((le) => le.evidence.id)
     const allEntityLinks = evidenceIds.length > 0
-      ? db.select().from(evidenceEntities).where(sql`${evidenceEntities.evidenceId} IN (${evidenceIds.join(",")})`).all()
+      ? db.select().from(evidenceEntities).where(inArray(evidenceEntities.evidenceId, evidenceIds)).all()
       : []
     const entityIdSet = new Set(allEntityLinks.map((el) => el.entityId))
     const storyEntities = entityIdSet.size > 0
-      ? db.select().from(entities).where(sql`${entities.id} IN (${Array.from(entityIdSet).join(",")})`).all()
+      ? db.select().from(entities).where(inArray(entities.id, Array.from(entityIdSet))).all()
       : []
 
     const entityIdArray = Array.from(entityIdSet)
     const rels = entityIdArray.length > 0
       ? db.select().from(relationships)
-        .where(sql`${relationships.sourceId} IN (${entityIdArray.join(",")}) OR ${relationships.targetId} IN (${entityIdArray.join(",")})`)
+        .where(sql`${relationships.sourceId} IN ${entityIdArray} OR ${relationships.targetId} IN ${entityIdArray}`)
         .all()
       : []
 

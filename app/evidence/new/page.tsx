@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ArrowLeft, Loader2 } from "lucide-react"
+import { ArrowLeft, Loader2, Info } from "lucide-react"
 
 export default function NewEvidencePage() {
   const router = useRouter()
@@ -23,6 +23,7 @@ export default function NewEvidencePage() {
   const [tags, setTags] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [autoConfidence, setAutoConfidence] = useState(true)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -39,7 +40,8 @@ export default function NewEvidencePage() {
           sourceType,
           content,
           publicationDate: publicationDate || undefined,
-          confidence: parseFloat(confidence),
+          confidence: autoConfidence ? undefined : parseFloat(confidence),
+          autoConfidence,
           tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
         }),
       })
@@ -57,6 +59,13 @@ export default function NewEvidencePage() {
       setLoading(false)
     }
   }
+
+  const confidenceLevels = [
+    { value: "0.2", label: "Low (20%)", desc: "Unverified source, anonymous claims, or high bias indicators" },
+    { value: "0.5", label: "Medium (50%)", desc: "Some corroboration possible, secondary source, mixed signals" },
+    { value: "0.7", label: "High (70%)", desc: "Reputable source, specific data, internally consistent" },
+    { value: "0.9", label: "Very High (90%)", desc: "Official document, primary source, auditable data" },
+  ]
 
   return (
     <AppShell>
@@ -110,7 +119,7 @@ export default function NewEvidencePage() {
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   rows={8}
-                  placeholder="Paste the full text content here. AI will automatically extract summary, entities, and timeline events."
+                  placeholder="Paste the full text content here. AI will automatically extract summary, entities, and timeline events. For large documents (500+ pages), the system will chunk and summarize automatically."
                 />
               </div>
 
@@ -120,14 +129,30 @@ export default function NewEvidencePage() {
                   <Input id="pubDate" type="date" value={publicationDate} onChange={(e) => setPublicationDate(e.target.value)} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="confidence">Confidence</Label>
-                  <Select value={confidence} onValueChange={setConfidence}>
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="confidence">Confidence</Label>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        id="autoConfidence"
+                        checked={autoConfidence}
+                        onChange={(e) => setAutoConfidence(e.target.checked)}
+                        className="rounded border"
+                      />
+                      <label htmlFor="autoConfidence" className="text-xs text-muted-foreground">Auto</label>
+                    </div>
+                  </div>
+                  <Select value={confidence} onValueChange={setConfidence} disabled={autoConfidence}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="0.2">Low (20%)</SelectItem>
-                      <SelectItem value="0.5">Medium (50%)</SelectItem>
-                      <SelectItem value="0.7">High (70%)</SelectItem>
-                      <SelectItem value="0.9">Very High (90%)</SelectItem>
+                      {confidenceLevels.map((c) => (
+                        <SelectItem key={c.value} value={c.value}>
+                          <div className="flex flex-col">
+                            <span>{c.label}</span>
+                            <span className="text-[10px] text-muted-foreground">{c.desc}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -136,6 +161,24 @@ export default function NewEvidencePage() {
                   <Input id="tags" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="comma, separated" />
                 </div>
               </div>
+
+              {!autoConfidence && (
+                <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
+                  <div className="flex items-start gap-2">
+                    <Info className="h-4 w-4 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium">Confidence Level Guide</p>
+                      <ul className="mt-1 space-y-0.5">
+                        <li><strong>Low (20%):</strong> Unverified source, anonymous claims, high bias</li>
+                        <li><strong>Medium (50%):</strong> Some corroboration, secondary source, mixed</li>
+                        <li><strong>High (70%):</strong> Reputable source, specific data, consistent</li>
+                        <li><strong>Very High (90%):</strong> Official document, primary source, auditable</li>
+                      </ul>
+                      <p className="mt-1">When Auto is enabled, the AI analyzes the source text and assigns a confidence score based on source authority, data specificity, internal consistency, and corroboration potential.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {error && <p className="text-sm text-destructive">{error}</p>}
 

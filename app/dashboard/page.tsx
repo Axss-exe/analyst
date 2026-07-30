@@ -19,30 +19,38 @@ import {
 } from "lucide-react"
 
 interface DashboardStats {
-  evidence: number
-  stories: number
-  tasks: number
-  briefs: number
-  entities: number
-  recentEvidence: Array<{ id: number; title: string; source: string; createdAt: string }>
-  recentStories: Array<{ id: number; title: string; status: string; updatedAt: string }>
-  recentBriefs: Array<{ id: number; headline: string; createdAt: string }>
-  pendingTasks: Array<{ id: number; objective: string; priority: string; deadline: string | null }>
-  recentActivity: Array<{ id: number; action: string; targetType: string; createdAt: string }>
+  totalEvidence?: number
+  totalStories?: number
+  totalTasks?: number
+  totalBriefs?: number
+  totalEntities?: number
+  recentEvidence?: Array<{ id: number; title: string; source: string; createdAt: string }>
+  recentStories?: Array<{ id: number; title: string; status: string; updatedAt: string }>
+  recentBriefs?: Array<{ id: number; headline: string; createdAt: string }>
+  pendingTasks?: Array<{ id: number; objective: string; priority: string; deadline: string | null }>
+  recentActivity?: Array<{ id: number; action: string; targetType: string; createdAt: string }>
 }
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
 
   useEffect(() => {
     fetch("/api/admin/stats")
       .then((r) => r.json())
       .then((data) => {
-        setStats(data)
+        if (data.error) {
+          setError(data.error)
+        } else {
+          setStats(data)
+        }
         setLoading(false)
       })
-      .catch(() => setLoading(false))
+      .catch(() => {
+        setError("Failed to load dashboard data")
+        setLoading(false)
+      })
   }, [])
 
   if (loading) {
@@ -81,6 +89,12 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {error && (
+          <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            {error === "Forbidden" ? "Admin stats are restricted. Some dashboard data may be unavailable." : error}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
           {statCards.map((card) => {
             const Icon = card.icon
@@ -109,11 +123,11 @@ export default function DashboardPage() {
               </Link>
             </CardHeader>
             <CardContent>
-              {stats?.recentEvidence?.length === 0 ? (
+              {(!stats?.recentEvidence || stats.recentEvidence.length === 0) ? (
                 <p className="text-sm text-muted-foreground py-4">No evidence yet</p>
               ) : (
                 <div className="space-y-2">
-                  {(stats?.recentEvidence || []).map((ev) => (
+                  {(stats.recentEvidence || []).map((ev) => (
                     <Link key={ev.id} href={`/evidence/${ev.id}`} className="flex items-center justify-between rounded-md p-2 transition-colors hover:bg-accent">
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">{ev.title}</p>
@@ -132,11 +146,11 @@ export default function DashboardPage() {
               <CardTitle className="text-sm font-medium">Pending Tasks</CardTitle>
             </CardHeader>
             <CardContent>
-              {stats?.pendingTasks?.length === 0 ? (
+              {(!stats?.pendingTasks || stats.pendingTasks.length === 0) ? (
                 <p className="text-sm text-muted-foreground py-4">No pending tasks</p>
               ) : (
                 <div className="space-y-2">
-                  {(stats?.pendingTasks || []).map((task) => (
+                  {(stats.pendingTasks || []).map((task) => (
                     <Link key={task.id} href={`/tasks/${task.id}`} className="flex items-start gap-2 rounded-md p-2 transition-colors hover:bg-accent">
                       <ClipboardList className="mt-0.5 h-4 w-4 text-muted-foreground" />
                       <div className="min-w-0">
@@ -169,11 +183,11 @@ export default function DashboardPage() {
               </Link>
             </CardHeader>
             <CardContent>
-              {(stats?.recentStories || []).length === 0 ? (
+              {(!stats?.recentStories || stats.recentStories.length === 0) ? (
                 <p className="text-sm text-muted-foreground py-4">No stories yet</p>
               ) : (
                 <div className="space-y-2">
-                  {(stats?.recentStories || []).map((story) => (
+                  {(stats.recentStories || []).map((story) => (
                     <Link key={story.id} href={`/stories/${story.id}`} className="flex items-center justify-between rounded-md p-2 transition-colors hover:bg-accent">
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">{story.title}</p>
@@ -197,11 +211,11 @@ export default function DashboardPage() {
               </Link>
             </CardHeader>
             <CardContent>
-              {(stats?.recentBriefs || []).length === 0 ? (
+              {(!stats?.recentBriefs || stats.recentBriefs.length === 0) ? (
                 <p className="text-sm text-muted-foreground py-4">No briefs yet</p>
               ) : (
                 <div className="space-y-2">
-                  {(stats?.recentBriefs || []).map((brief) => (
+                  {(stats.recentBriefs || []).map((brief) => (
                     <Link key={brief.id} href={`/briefs/${brief.id}`} className="flex items-center justify-between rounded-md p-2 transition-colors hover:bg-accent">
                       <p className="text-sm font-medium truncate">{brief.headline}</p>
                       <span className="text-xs text-muted-foreground whitespace-nowrap">{new Date(brief.createdAt).toLocaleDateString()}</span>
@@ -218,11 +232,11 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-medium">Recent Activity</CardTitle>
           </CardHeader>
           <CardContent>
-            {(stats?.recentActivity || []).length === 0 ? (
+            {(!stats?.recentActivity || stats.recentActivity.length === 0) ? (
               <p className="text-sm text-muted-foreground py-4">No recent activity</p>
             ) : (
               <div className="space-y-2">
-                {(stats?.recentActivity || []).map((activity) => (
+                {(stats.recentActivity || []).map((activity) => (
                   <div key={activity.id} className="flex items-center gap-3 rounded-md p-2">
                     <TrendingUp className="h-4 w-4 text-muted-foreground" />
                     <div className="flex-1">
@@ -232,7 +246,7 @@ export default function DashboardPage() {
                         <span className="capitalize">{activity.targetType}</span>
                       </p>
                     </div>
-                    <span className="text-xs text-muted-foreground">{new Date(activity.createdAt).toLocaleString()}</span>
+                    <span className="text-xs text-muted-foreground">{new Date(activity.createdAt).toLocaleDateString()}</span>
                   </div>
                 ))}
               </div>

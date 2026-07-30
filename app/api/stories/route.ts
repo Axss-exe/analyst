@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/db/client"
-import { stories, evidence, storyEvidence, users } from "@/db/schema"
+import { stories, storyEvidence } from "@/db/schema"
 import { eq, like, desc, sql } from "drizzle-orm"
 import { requireAuth } from "@/lib/auth"
 import { logAction } from "@/lib/audit"
+
+function escapeLikePattern(str: string): string {
+  return str.replace(/[%_]/g, "\$&")
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,14 +19,17 @@ export async function GET(request: NextRequest) {
     const offset = parseInt(searchParams.get("offset") || "0")
 
     let query = db.select().from(stories)
-    if (search) query = query.where(like(stories.title, `%${search}%`)) as any
+    if (search) {
+      const pattern = `%${escapeLikePattern(search)}%`
+      query = query.where(sql`${stories.title} LIKE ${pattern} ESCAPE '\'`) as any
+    }
     if (status) query = query.where(eq(stories.status, status)) as any
 
     const items = query.orderBy(desc(stories.updatedAt)).limit(limit).offset(offset).all()
-    const count = db.select({ count: sql<number>`count(*)` }).from(stories).get()
+    const count = db.select({ count: sql`count(*)` }).from(stories).get()
 
     const enriched = items.map((story) => {
-      const evCount = db.select({ count: sql<number>`count(*)` }).from(storyEvidence).where(eq(storyEvidence.storyId, story.id)).get()
+      const evCount = db.select({ count: sql`count(*)` }).from(storyEvidence).where(eq(storyEvidence.storyId, story.id)).get()
       return { ...story, evidenceCount: evCount?.count || 0 }
     })
 
