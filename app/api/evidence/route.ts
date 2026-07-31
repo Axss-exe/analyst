@@ -81,6 +81,7 @@ export async function POST(request: NextRequest) {
     let finalConfidence = confidence || 0.5
     let extractedTopics: any = null
 
+    // Auto-evaluate confidence
     if (autoConfidence || confidence === undefined || confidence === null) {
       if (content) {
         try {
@@ -97,6 +98,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Extract topics/themes from content
     if (content) {
       try {
         extractedTopics = await extractTopicsFromText(content)
@@ -106,6 +108,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Generate summary from content
     if (content && !summary) {
       try {
         finalSummary = await generateEvidenceSummary(content)
@@ -141,6 +144,7 @@ export async function POST(request: NextRequest) {
       newValue: JSON.stringify({ title, source, sourceType }),
     })
 
+    // Extract entities
     const extractedEntityNames: string[] = []
     if (content) {
       try {
@@ -170,6 +174,7 @@ export async function POST(request: NextRequest) {
         // silent fail
       }
 
+      // Extract timeline events
       try {
         const extractedEvents = await extractTimelineEvents(content)
         for (const evt of extractedEvents) {
@@ -187,6 +192,7 @@ export async function POST(request: NextRequest) {
         // silent fail
       }
 
+      // Update AI metadata with entity names for topic matching
       if (extractedTopics) {
         extractedTopics.keyEntities = extractedEntityNames
         aiMetadata.topics = extractedTopics

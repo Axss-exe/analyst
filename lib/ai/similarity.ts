@@ -89,3 +89,44 @@ Only output valid JSON.`
     reasoning: `Fallback similarity: ${sharedT.length} shared topics, ${sharedE.length} shared entities`,
   }
 }
+
+export async function evaluateStoryRelevance(
+  evidenceSummary: string,
+  storyTitle: string,
+  storyOverview: string
+): Promise<{ score: number; reasoning: string }> {
+  const prompt = `Evaluate how relevant this new evidence is to an existing intelligence story.
+
+Story: ${storyTitle}
+Story Overview: ${storyOverview}
+
+New Evidence Summary: ${evidenceSummary}
+
+Rate relevance from 0.0 to 1.0 where:
+- 0.0: Completely unrelated
+- 0.3: Tangentially related
+- 0.5: Moderately relevant
+- 0.7: Strongly relevant
+- 1.0: Directly confirms or contradicts the story
+
+Respond in this JSON format only:
+{ "score": 0.75, "reasoning": "Brief explanation of relevance" }`
+
+  const response = await generateWithAI(prompt, {
+    systemPrompt: "You are an intelligence matching system. Be conservative with scores. Only high scores for direct relevance.",
+    temperature: 0.1,
+    maxTokens: 512,
+  })
+
+  try {
+    const jsonMatch = response.match(/\{[\s\S]*\}/)
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0])
+      return { score: Math.max(0, Math.min(1, parsed.score || 0)), reasoning: parsed.reasoning || "" }
+    }
+  } catch {
+    // fall through
+  }
+
+  return { score: 0.3, reasoning: "Unable to evaluate automatically" }
+}

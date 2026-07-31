@@ -1,87 +1,46 @@
-# ATIS Performance Fixes
+# ATIS Performance Fixes — Patch v2
 
-This package contains all the files needed to fix the extreme compilation slowness and request spam in your ATIS (Africa Trade Intelligence System) Next.js app.
+This patch fixes the critical bugs discovered after applying v1.
 
-## What These Fixes Do
+## What Went Wrong in v1
 
-| Fix | Problem Solved | Expected Impact |
-|-----|---------------|-----------------|
-| **Split `lib/ai.ts`** | One 500-line monolith was being bundled into every API route, even routes that only used 1 function | **-70% API route compile time** |
-| **`optimizePackageImports`** | `lucide-react`, `@radix-ui/*`, and `date-fns` were importing thousands of tiny modules per page | **-40% page compile time** |
-| **SWR auth + notifications** | `useAuth` and `useNotifications` fired duplicate requests on every mount, causing request storms and constant re-compiles | **-90% auth/session calls** |
-| **Global SQLite cache** | `better-sqlite3` connection was recreated on every HMR cycle | **Eliminates DB connection leaks** |
-| **Narrowed middleware matcher** | Middleware ran JWT verify on *every* request including API routes (which already verify internally) | **-20% cold start overhead** |
+1. **`evaluateStoryRelevance` was in the wrong file** — I put it in `lib/ai/confidence.ts`, but `app/api/evidence/route.ts` imported it from `@/lib/ai/similarity`. This caused webpack to log an import error on every evidence API hit, leaking memory until Node crashed with "JavaScript heap out of memory" at ~3.5 GB.
 
-## File Placement Table
+2. **`/api/evidence/:id/related` loaded 100 full evidence rows** — including potentially large `summary` and `aiMetadata` fields. This caused 30–60 second response times and memory pressure.
 
-| File in this zip | Destination in your repo | Action |
-|------------------|-------------------------|--------|
-| `next.config.js` | `next.config.js` | **Replace** existing file |
-| `db/client.ts` | `db/client.ts` | **Replace** existing file |
-| `middleware.ts` | `middleware.ts` | **Replace** existing file |
-| `lib/ai/client.ts` | `lib/ai/client.ts` | **Create new** |
-| `lib/ai/summary.ts` | `lib/ai/summary.ts` | **Create new** |
-| `lib/ai/topics.ts` | `lib/ai/topics.ts` | **Create new** |
-| `lib/ai/similarity.ts` | `lib/ai/similarity.ts` | **Create new** |
-| `lib/ai/stories.ts` | `lib/ai/stories.ts` | **Create new** |
-| `lib/ai/entities.ts` | `lib/ai/entities.ts` | **Create new** |
-| `lib/ai/confidence.ts` | `lib/ai/confidence.ts` | **Create new** |
-| `lib/ai/index.ts` | `lib/ai/index.ts` | **Create new** (barrel for backward compat) |
-| `hooks/use-auth.ts` | `hooks/use-auth.ts` | **Replace** existing file |
-| `hooks/use-notifications.ts` | `hooks/use-notifications.ts` | **Replace** existing file |
-| `app/api/evidence/route.ts` | `app/api/evidence/route.ts` | **Replace** existing file |
-| `app/api/discover/route.ts` | `app/api/discover/route.ts` | **Replace** existing file |
-| `app/api/evidence/[id]/related/route.ts` | `app/api/evidence/[id]/related/route.ts` | **Replace** existing file |
-| `app/api/admin/stats/route.ts` | `app/api/admin/stats/route.ts` | **Replace** existing file |
-| `app/api/notifications/route.ts` | `app/api/notifications/route.ts` | **Replace** existing file |
-| `app/api/auth/session/route.ts` | `app/api/auth/session/route.ts` | **Replace** existing file |
+## What This Patch Fixes
 
-## Installation Steps
+| Fix | File | Change |
+|-----|------|--------|
+| Move `evaluateStoryRelevance` to correct module | `lib/ai/similarity.ts` | Added `evaluateStoryRelevance` export |
+| Remove duplicate from confidence module | `lib/ai/confidence.ts` | Removed `evaluateStoryRelevance` (now lives in similarity) |
+| Update barrel exports | `lib/ai/index.ts` | Re-exports `evaluateStoryRelevance` from `similarity` |
+| Fix evidence route import | `app/api/evidence/route.ts` | No change needed — already imports from `similarity`, which now has the function |
+| Optimize related evidence queries | `app/api/evidence/[id]/related/route.ts` | Only selects `id, title, sourceType, createdAt` instead of full rows |
 
-1. **Install SWR** (required for the new hooks):
-   ```bash
-   npm install swr
-   ```
+## File Placement
 
-2. **Copy all files** from this zip into your repo according to the table above.
+| File in this zip | Destination | Action |
+|------------------|-------------|--------|
+| `lib/ai/similarity.ts` | `lib/ai/similarity.ts` | **Replace** |
+| `lib/ai/confidence.ts` | `lib/ai/confidence.ts` | **Replace** |
+| `lib/ai/index.ts` | `lib/ai/index.ts` | **Replace** |
+| `app/api/evidence/route.ts` | `app/api/evidence/route.ts` | **Replace** (same as v1, but included for completeness) |
+| `app/api/evidence/[id]/related/route.ts` | `app/api/evidence/[id]/related/route.ts` | **Replace** |
 
-3. **Delete the old monolith** (optional but recommended):
-   ```bash
-   del lib\ai.ts
-   ```
-   The barrel file (`lib/ai/index.ts`) re-exports everything for backward compatibility, so any other files still importing from `@/lib/ai` will continue to work.
+## Steps
 
-4. **Add Windows Defender exclusions** (critical on Windows):
-   - Open **Windows Security** → **Virus & threat protection** → **Manage settings** → **Exclusions** → **Add or remove exclusions**
-   - Add these folder exclusions:
-     - `C:\Users\tmaki\Downloads\analyst` (your project root)
-     - `C:\Users\tmaki\Downloads\analyst\node_modules`
-     - `%LOCALAPPDATA%\Temp`
-
-5. **Try Turbopack** (Next.js 14.2+):
-   ```json
-   // package.json
-   "dev": "next dev --turbo"
-   ```
-   If any routes fail under Turbopack, fall back to `next dev` — the webpack optimizations in `next.config.js` will still apply.
-
-6. **Restart the dev server**:
-   ```bash
-   npm run dev
-   ```
+1. Stop the dev server if running.
+2. Copy all files from this zip to your repo.
+3. Restart: `npm run dev`
+4. The import error spam should disappear immediately.
+5. The heap crash should stop happening.
 
 ## Expected Results
 
-| Metric | Before | After |
-|--------|--------|-------|
-| `/api/admin/stats` compile | ~485s | **<5s** |
-| `/evidence/new` compile | ~26s | **<3s** |
-| `/api/auth/session` calls | 40+/minute | **~1/minute** |
-| `/api/notifications` polling | Every 30s | **Every 60s** |
-| Cold start (first page load) | ~87s | **<10s** |
-
-## Notes
-
-- **Backward compatibility**: The barrel file `lib/ai/index.ts` preserves all existing exports. Any file you didn't update that still does `import { ... } from "@/lib/ai"` will continue to work.
-- **Middleware change**: API routes are now excluded from middleware matching because they already call `requireAuth()` internally. This eliminates double JWT verification.
-- **DB client change**: Uses `globalThis` to cache the SQLite connection across HMR cycles, preventing connection leaks.
+| Metric | Before (v1) | After (v2) |
+|--------|-------------|------------|
+| Import error spam | Every evidence API hit | **Zero** |
+| Node heap crash | After ~35 min / 3.5 GB | **Stable** |
+| `/api/evidence/:id/related` | 30–60s | **<500ms** (after first compile) |
+| `/api/evidence` POST | 13–18s | **<10s** (AI calls are the bottleneck, not bundling) |

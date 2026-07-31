@@ -12,23 +12,30 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: "Invalid evidence ID" }, { status: 400 })
     }
 
-    const target = db.select().from(evidence).where(eq(evidence.id, evidenceId)).get()
+    // Get target evidence — only id, title, aiMetadata (not the full row with huge summary)
+    const target = db.select({ id: evidence.id, title: evidence.title, aiMetadata: evidence.aiMetadata })
+      .from(evidence)
+      .where(eq(evidence.id, evidenceId))
+      .get()
     if (!target) {
       return NextResponse.json({ error: "Evidence not found" }, { status: 404 })
     }
 
+    // Get target's story links
     const targetStoryLinks = db.select({ storyId: storyEvidence.storyId })
       .from(storyEvidence)
       .where(eq(storyEvidence.evidenceId, evidenceId))
       .all()
     const targetStoryIds = targetStoryLinks.map(s => s.storyId)
 
+    // Get target's entities
     const targetEntityLinks = db.select({ entityId: evidenceEntities.entityId })
       .from(evidenceEntities)
       .where(eq(evidenceEntities.evidenceId, evidenceId))
       .all()
     const targetEntityIds = targetEntityLinks.map(e => e.entityId)
 
+    // Find related evidence by shared story — only select lightweight columns
     let storyRelated: any[] = []
     if (targetStoryIds.length > 0) {
       const storyEvidenceLinks = db.select({ evidenceId: storyEvidence.evidenceId })
@@ -37,10 +44,16 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
         .all()
       const relatedIds = [...new Set(storyEvidenceLinks.map(se => se.evidenceId))].filter(id => id !== evidenceId)
       if (relatedIds.length > 0) {
-        storyRelated = db.select().from(evidence).where(inArray(evidence.id, relatedIds)).limit(10).all()
+        storyRelated = db.select({
+          id: evidence.id,
+          title: evidence.title,
+          sourceType: evidence.sourceType,
+          createdAt: evidence.createdAt,
+        }).from(evidence).where(inArray(evidence.id, relatedIds)).limit(10).all()
       }
     }
 
+    // Find related evidence by shared entities
     let entityRelated: any[] = []
     if (targetEntityIds.length > 0) {
       const entityEvidenceLinks = db.select({ evidenceId: evidenceEntities.evidenceId })
@@ -49,23 +62,44 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
         .all()
       const relatedIds = [...new Set(entityEvidenceLinks.map(ee => ee.evidenceId))].filter(id => id !== evidenceId)
       if (relatedIds.length > 0) {
-        entityRelated = db.select().from(evidence).where(inArray(evidence.id, relatedIds)).limit(10).all()
+        entityRelated = db.select({
+          id: evidence.id,
+          title: evidence.title,
+          sourceType: evidence.sourceType,
+          createdAt: evidence.createdAt,
+        }).from(evidence).where(inArray(evidence.id, relatedIds)).limit(10).all()
       }
     }
 
+    // Find related by topic overlap — only lightweight columns
     let topicRelated: any[] = []
     try {
       const meta = target.aiMetadata ? JSON.parse(target.aiMetadata) : {}
       const topics = meta.topics?.topics || []
       if (topics.length > 0) {
-        const allEvidence = db.select().from(evidence).where(sql`${evidence.id} != ${evidenceId}`).limit(100).all()
-        topicRelated = allEvidence.filter((ev: any) => {
+        const candidates = db.select({
+          id: evidence.id,
+          title: evidence.title,
+          sourceType: evidence.sourceType,
+          createdAt: evidence.createdAt,
+          aiMetadata: evidence.aiMetadata,
+        }).from(evidence)
+          .where(sql`${evidence.id} != ${evidenceId}`)
+          .limit(100)
+          .all()
+
+        topicRelated = candidates.filter((ev: any) => {
           try {
             const evMeta = ev.aiMetadata ? JSON.parse(ev.aiMetadata) : {}
             const evTopics = evMeta.topics?.topics || []
             return topics.some((t: string) => evTopics.includes(t))
           } catch { return false }
-        }).slice(0, 10)
+        }).slice(0, 10).map((ev: any) => ({
+          id: ev.id,
+          title: ev.title,
+          sourceType: ev.sourceType,
+          createdAt: ev.createdAt,
+        }))
       }
     } catch { /* ignore */ }
 
