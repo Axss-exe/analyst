@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import useSWR from "swr"
 
 export interface NotificationItem {
   id: number
@@ -13,43 +13,27 @@ export interface NotificationItem {
   createdAt: string
 }
 
+const fetcher = (url: string) => fetch(url).then(r => r.json())
+
 export function useNotifications() {
-  const [notifications, setNotifications] = useState<NotificationItem[]>([])
-  const [unreadCount, setUnreadCount] = useState(0)
-  const [loading, setLoading] = useState(true)
+  const { data, mutate } = useSWR("/api/notifications", fetcher, {
+    refreshInterval: 60000,   // 1 minute (was 30s)
+    revalidateOnFocus: true,
+    dedupingInterval: 30000,
+  })
 
-  const fetchNotifications = async () => {
-    try {
-      const res = await fetch("/api/notifications")
-      const data = await res.json()
-      setNotifications(data.notifications || [])
-      setUnreadCount(data.unreadCount || 0)
-    } catch {
-      // silent
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    fetchNotifications()
-    const interval = setInterval(fetchNotifications, 30000)
-    return () => clearInterval(interval)
-  }, [])
+  const notifications = data?.notifications || []
+  const unreadCount = data?.unreadCount || 0
 
   const markRead = async (id: number) => {
     await fetch(`/api/notifications/${id}/read`, { method: "POST" })
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
-    )
-    setUnreadCount((c) => Math.max(0, c - 1))
+    mutate()
   }
 
   const markAllRead = async () => {
     await fetch("/api/notifications/read-all", { method: "POST" })
-    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })))
-    setUnreadCount(0)
+    mutate()
   }
 
-  return { notifications, unreadCount, loading, markRead, markAllRead, refresh: fetchNotifications }
+  return { notifications, unreadCount, loading: !data, markRead, markAllRead, refresh: () => mutate() }
 }

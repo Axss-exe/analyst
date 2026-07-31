@@ -5,18 +5,16 @@ import { eq, like, desc, sql, inArray } from "drizzle-orm"
 import { requireAuth } from "@/lib/auth"
 import { logAction } from "@/lib/audit"
 import { createNotification } from "@/lib/notifications"
-import {
-  generateEvidenceSummary,
-  extractEntitiesFromText,
-  extractTimelineEvents,
-  evaluateStoryRelevance,
-  evaluateSourceConfidence,
-  extractTopicsFromText,
-  evaluateEvidenceSimilarity,
-} from "@/lib/ai"
+
+// Import from split AI modules instead of the monolithic lib/ai.ts
+import { generateEvidenceSummary } from "@/lib/ai/summary"
+import { extractTopicsFromText } from "@/lib/ai/topics"
+import { extractEntitiesFromText, extractTimelineEvents } from "@/lib/ai/entities"
+import { evaluateStoryRelevance } from "@/lib/ai/similarity"
+import { evaluateSourceConfidence } from "@/lib/ai/confidence"
 
 function escapeLikePattern(str: string): string {
-  return str.replace(/[%_]/g, "\$&")
+  return str.replace(/[%_]/g, "\\$&")
 }
 
 export async function GET(request: NextRequest) {
@@ -26,7 +24,7 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get("search") || ""
     const tag = searchParams.get("tag") || ""
     const sourceType = searchParams.get("sourceType") || ""
-    const linked = searchParams.get("linked") || "" // "true" | "false" | ""
+    const linked = searchParams.get("linked") || ""
     const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 100)
     const offset = parseInt(searchParams.get("offset") || "0")
 
@@ -34,17 +32,16 @@ export async function GET(request: NextRequest) {
 
     if (search) {
       const pattern = `%${escapeLikePattern(search)}%`
-      query = query.where(sql`${evidence.title} LIKE ${pattern} ESCAPE '\'`) as any
+      query = query.where(sql`${evidence.title} LIKE ${pattern} ESCAPE '\\'`) as any
     }
     if (tag) {
       const pattern = `%${escapeLikePattern(tag)}%`
-      query = query.where(sql`${evidence.tags} LIKE ${pattern} ESCAPE '\'`) as any
+      query = query.where(sql`${evidence.tags} LIKE ${pattern} ESCAPE '\\'`) as any
     }
     if (sourceType) {
       query = query.where(eq(evidence.sourceType, sourceType)) as any
     }
 
-    // Filter by linked/unlinked to stories
     if (linked === "false") {
       const allLinked = db.select({ evidenceId: storyEvidence.evidenceId }).from(storyEvidence).all()
       const linkedIds = new Set(allLinked.map(l => l.evidenceId))
@@ -84,7 +81,6 @@ export async function POST(request: NextRequest) {
     let finalConfidence = confidence || 0.5
     let extractedTopics: any = null
 
-    // Auto-evaluate confidence
     if (autoConfidence || confidence === undefined || confidence === null) {
       if (content) {
         try {
@@ -101,7 +97,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Extract topics/themes from content
     if (content) {
       try {
         extractedTopics = await extractTopicsFromText(content)
@@ -111,7 +106,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Generate summary from content
     if (content && !summary) {
       try {
         finalSummary = await generateEvidenceSummary(content)
@@ -147,7 +141,6 @@ export async function POST(request: NextRequest) {
       newValue: JSON.stringify({ title, source, sourceType }),
     })
 
-    // Extract entities
     const extractedEntityNames: string[] = []
     if (content) {
       try {
@@ -177,7 +170,6 @@ export async function POST(request: NextRequest) {
         // silent fail
       }
 
-      // Extract timeline events
       try {
         const extractedEvents = await extractTimelineEvents(content)
         for (const evt of extractedEvents) {
@@ -195,7 +187,6 @@ export async function POST(request: NextRequest) {
         // silent fail
       }
 
-      // Update AI metadata with entity names for topic matching
       if (extractedTopics) {
         extractedTopics.keyEntities = extractedEntityNames
         aiMetadata.topics = extractedTopics
@@ -203,17 +194,14 @@ export async function POST(request: NextRequest) {
       db.update(evidence).set({ aiMetadata: JSON.stringify(aiMetadata) }).where(eq(evidence.id, result.id)).run()
     }
 
-    // ==================== SMART STORY LINKING ====================
-    // Multi-factor matching: link evidence to ALL relevant stories, not just one
+    // SMART STORY LINKING
     const allStories = db.select().from(stories).where(eq(stories.status, "active")).all()
     const matches: Array<{ storyId: number; score: number; reasoning: string }> = []
 
     for (const story of allStories) {
       try {
-        // Factor 1: AI semantic relevance
         const relevance = await evaluateStoryRelevance(finalSummary, story.title, story.overview)
 
-        // Factor 2: Entity overlap with existing story evidence
         const storyEvidenceLinks = db.select({ evidenceId: storyEvidence.evidenceId })
           .from(storyEvidence)
           .where(eq(storyEvidence.storyId, story.id))
@@ -236,7 +224,6 @@ export async function POST(request: NextRequest) {
           entityOverlapScore = totalUnique > 0 ? shared.length / totalUnique : 0
         }
 
-        // Combined score (weighted)
         const combinedScore = (relevance.score * 0.6) + (entityOverlapScore * 0.4)
 
         if (combinedScore >= 0.35) {
@@ -247,10 +234,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Sort by score descending
     matches.sort((a, b) => b.score - a.score)
 
-    // Auto-link to top matches (score >= 0.5) auto-link, 0.35-0.5 suggest
     const autoLinks = matches.filter(m => m.score >= 0.5)
     const suggestions = matches.filter(m => m.score >= 0.35 && m.score < 0.5)
 
@@ -283,7 +268,6 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // If no matches at all, flag for story discovery
     if (matches.length === 0) {
       await createNotification({
         userId: user.id,

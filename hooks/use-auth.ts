@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import useSWR from "swr"
 import { useRouter } from "next/navigation"
 
 export interface AuthUser {
@@ -10,32 +10,26 @@ export interface AuthUser {
   role: "admin" | "analyst"
 }
 
-export function useAuth() {
-  const [user, setUser] = useState<AuthUser | null>(null)
-  const [loading, setLoading] = useState(true)
-  const router = useRouter()
+const fetcher = (url: string) => fetch(url).then(r => r.json())
 
-  useEffect(() => {
-    let cancelled = false
-    fetch("/api/auth/session")
-      .then((res) => res.json())
-      .then((data) => {
-        if (cancelled) return
-        if (data.user) setUser(data.user)
-        setLoading(false)
-      })
-      .catch(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => { cancelled = true }
-  }, [])
+export function useAuth() {
+  const router = useRouter()
+  const { data, error, mutate } = useSWR("/api/auth/session", fetcher, {
+    refreshInterval: 300000,      // 5 minutes
+    revalidateOnFocus: false,     // don't refetch on tab focus
+    dedupingInterval: 60000,      // dedupe requests within 1 min
+  })
 
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST" })
-    setUser(null)
+    mutate(null, false)
     router.push("/login")
-    router.refresh()
   }
 
-  return { user, loading, logout, isAdmin: user?.role === "admin" }
+  return {
+    user: data?.user || null,
+    loading: !error && !data,
+    logout,
+    isAdmin: data?.user?.role === "admin",
+  }
 }

@@ -50,7 +50,7 @@ export async function generateWithAI(
   options: AIGenerationOptions = {}
 ): Promise<string> {
   const apiKey = process.env.CEREBRAS_API_KEY
-  const model = process.env.CEREBRAS_MODEL || "llama3.1-70b"
+  const model = process.env.CEREBRAS_MODEL || "gemma-4-31b"
   const temperature = options.temperature ?? parseFloat(process.env.AI_TEMPERATURE || "0.3")
   const maxTokens = options.maxTokens ?? parseInt(process.env.AI_MAX_TOKENS || "4096")
 

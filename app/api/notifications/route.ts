@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
       .limit(100)
       .all()
 
-    const unreadCount = db.select({ count: sql<number>`count(*)` })
+    const unreadCount = db.select({ count: sql`count(*)` })
       .from(notifications)
       .where(eq(notifications.userId, user.id))
       .where(eq(notifications.isRead, false))

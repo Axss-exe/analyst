@@ -3,7 +3,7 @@ import { db } from "@/db/client"
 import { evidence, storyEvidence, entities, evidenceEntities, stories } from "@/db/schema"
 import { eq, desc, sql, inArray } from "drizzle-orm"
 import { requireAuth } from "@/lib/auth"
-import { proposeStoryFromEvidence, evaluateEvidenceSimilarity, extractTopicsFromText } from "@/lib/ai"
+import { proposeStoryFromEvidence } from "@/lib/ai/stories"
 
 interface EvidenceWithMeta {
   id: number
@@ -37,10 +37,6 @@ function getEvidenceThemes(ev: any): string[] {
   } catch { return [] }
 }
 
-/**
- * GET /api/discover
- * Scans all unlinked evidence and proposes story clusters
- */
 export async function GET(request: NextRequest) {
   try {
     const user = await requireAuth()
@@ -48,7 +44,6 @@ export async function GET(request: NextRequest) {
     const minClusterSize = parseInt(searchParams.get("minClusterSize") || "2")
     const maxClusters = parseInt(searchParams.get("maxClusters") || "10")
 
-    // Get all unlinked evidence
     const allEvidence = db.select().from(evidence).orderBy(desc(evidence.createdAt)).all()
     const linkedIds = db.select({ evidenceId: storyEvidence.evidenceId }).from(storyEvidence).all()
     const linkedSet = new Set(linkedIds.map(l => l.evidenceId))
@@ -58,7 +53,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ clusters: [], unlinkedCount: unlinked.length })
     }
 
-    // Phase 1: Entity-based clustering (fast, no AI)
+    // Phase 1: Entity-based clustering
     const clusters: EvidenceWithMeta[][] = []
     const assigned = new Set<number>()
 
@@ -86,11 +81,9 @@ export async function GET(request: NextRequest) {
         const otherEntities = getEvidenceEntities(other)
         const otherTopics = getEvidenceTopics(other)
 
-        // Check entity overlap
         const sharedEntities = evEntities.filter(e => otherEntities.includes(e))
         const sharedTopics = evTopics.filter(t => otherTopics.includes(t))
 
-        // Cluster if strong overlap
         if (sharedEntities.length >= 2 || (sharedEntities.length >= 1 && sharedTopics.length >= 2)) {
           cluster.push({
             id: other.id,
@@ -109,12 +102,11 @@ export async function GET(request: NextRequest) {
       if (cluster.length >= minClusterSize) {
         clusters.push(cluster)
       } else {
-        // Un-assign if cluster too small
         cluster.forEach(c => assigned.delete(c.id))
       }
     }
 
-    // Phase 2: Topic-based clustering for remaining unassigned
+    // Phase 2: Topic-based clustering for remaining
     const remaining = unlinked.filter(e => !assigned.has(e.id))
     const topicGroups: Map<string, EvidenceWithMeta[]> = new Map()
 
@@ -139,7 +131,6 @@ export async function GET(request: NextRequest) {
 
     for (const [topic, group] of topicGroups) {
       if (group.length >= minClusterSize) {
-        // Deduplicate by evidence ID
         const seen = new Set<number>()
         const deduped = group.filter(g => {
           if (seen.has(g.id)) return false
@@ -153,10 +144,9 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Limit clusters
     const finalClusters = clusters.slice(0, maxClusters)
 
-    // Phase 3: AI-enhanced story proposals for top clusters
+    // Phase 3: AI-enhanced story proposals
     const proposals = []
     for (const cluster of finalClusters) {
       try {
@@ -173,7 +163,6 @@ export async function GET(request: NextRequest) {
         })
       } catch (e) {
         console.error("Story proposal failed for cluster:", e)
-        // Fallback proposal
         const allTopics = new Set<string>()
         const allEntities = new Set<string>()
         cluster.forEach(c => {
@@ -214,10 +203,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/**
- * POST /api/discover
- * Accept a proposed story cluster and create the story + links
- */
 export async function POST(request: NextRequest) {
   try {
     const user = await requireAuth()
@@ -228,7 +213,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Title, overview, and evidence IDs required" }, { status: 400 })
     }
 
-    // Create the story
     const story = db.insert(stories).values({
       title,
       overview,
@@ -236,7 +220,6 @@ export async function POST(request: NextRequest) {
       createdBy: user.id,
     }).returning().get()
 
-    // Link all evidence
     for (const evidenceId of evidenceIds) {
       db.insert(storyEvidence).values({
         storyId: story.id,
