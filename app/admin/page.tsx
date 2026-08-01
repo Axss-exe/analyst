@@ -10,13 +10,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
-import { Shield, Users, FileText, BookOpen, ClipboardList, Newspaper, Activity, Ban, CheckCircle, ArrowLeft } from "lucide-react"
+import { Shield, Users, FileText, BookOpen, ClipboardList, Newspaper, Activity, Ban, CheckCircle, ArrowLeft, Trash2, AlertTriangle } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 export default function AdminPage() {
   const [stats, setStats] = useState<any>(null)
   const [users, setUsers] = useState<any[]>([])
   const [logs, setLogs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [clearing, setClearing] = useState(false)
+  const [clearError, setClearError] = useState<string | null>(null)
+  const [clearSuccess, setClearSuccess] = useState<string | null>(null)
 
   useEffect(() => {
     Promise.all([
@@ -25,7 +29,7 @@ export default function AdminPage() {
       fetch("/api/admin/audit?limit=100").then((r) => r.json()),
     ]).then(([s, u, l]) => { setStats(s); setUsers(u.users || []); setLogs(l.logs || []); setLoading(false) })
       .catch(() => setLoading(false))
-  }, [])
+  }, [clearSuccess])
 
   const handleBlock = async (id: number) => {
     await fetch(`/api/admin/users/${id}/block`, { method: "POST" })
@@ -41,6 +45,38 @@ export default function AdminPage() {
     setUsers(data.users || [])
   }
 
+  const handleClearAllEvidence = async () => {
+    if (!confirm("DELETE ALL EVIDENCE?\n\nThis will permanently remove:\n- All evidence documents\n- All extracted entities\n- All timeline events\n- All relationships\n- All stories and story links\n- All generated briefs\n\nThis action cannot be undone.")) {
+      return
+    }
+    if (!confirm("Are you absolutely sure? Type 'yes' to confirm.")) {
+      return
+    }
+
+    setClearing(true)
+    setClearError(null)
+    setClearSuccess(null)
+
+    try {
+      const res = await fetch("/api/admin/clear-evidence", { method: "POST" })
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to clear evidence")
+      }
+
+      setClearSuccess(`Cleared ${data.cleared?.evidence || 0} evidence items and all derived data.`)
+      // Refresh stats
+      const statsRes = await fetch("/api/admin/stats")
+      const statsData = await statsRes.json()
+      setStats(statsData)
+    } catch (err: any) {
+      setClearError(err.message)
+    } finally {
+      setClearing(false)
+    }
+  }
+
   if (loading) return <AppShell><div className="flex h-96 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div></AppShell>
 
   return (
@@ -51,7 +87,32 @@ export default function AdminPage() {
             <Link href="/dashboard"><Button variant="ghost" size="sm"><ArrowLeft className="mr-1 h-4 w-4" /> Back</Button></Link>
             <h1 className="text-2xl font-semibold tracking-tight">Administration</h1>
           </div>
+          {/* NEW: Clear All Evidence button */}
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={handleClearAllEvidence}
+            disabled={clearing}
+            className="flex items-center gap-2"
+          >
+            <Trash2 className="h-4 w-4" />
+            {clearing ? "Clearing..." : "Clear All Evidence"}
+          </Button>
         </div>
+
+        {/* NEW: Feedback alerts */}
+        {clearError && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{clearError}</AlertDescription>
+          </Alert>
+        )}
+        {clearSuccess && (
+          <Alert variant="default" className="border-green-500 text-green-700">
+            <CheckCircle className="h-4 w-4" />
+            <AlertDescription>{clearSuccess}</AlertDescription>
+          </Alert>
+        )}
 
         <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
           {[
