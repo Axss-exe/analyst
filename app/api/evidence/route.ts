@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/db/client"
-import { evidence, storyEvidence, entities, evidenceEntities, timelineEvents, stories } from "@/db/schema"
+import { evidence, storyEvidence, entities, evidenceEntities, timelineEvents, stories, relationships } from "@/db/schema"
 import { eq, like, desc, sql, inArray } from "drizzle-orm"
 import { requireAuth } from "@/lib/auth"
 import { logAction } from "@/lib/audit"
@@ -8,14 +8,14 @@ import { createNotification } from "@/lib/notifications"
 import { createJob, startStage, completeStage, failStage, completeJob, failJob } from "@/lib/jobs"
 import { generateEvidenceSummary } from "@/lib/ai/summary"
 import { extractTopicsFromText } from "@/lib/ai/topics"
-import { extractEntitiesFromText, extractTimelineEvents } from "@/lib/ai/entities"
+import { extractEntitiesFromText, extractTimelineEvents, extractRelationshipsFromText } from "@/lib/ai/entities"
 import { evaluateStoryRelevance } from "@/lib/ai/similarity"
 import { evaluateSourceConfidence } from "@/lib/ai/confidence"
 import { estimateTokens } from "@/lib/ai/token-counter"
 import { randomUUID } from "crypto"
 
 function escapeLikePattern(str: string): string {
-  return str.replace(/[%_]/g, "\\$&")
+  return str.replace(/[%_]/g, "\$&")
 }
 
 export async function GET(request: NextRequest) {
@@ -33,11 +33,11 @@ export async function GET(request: NextRequest) {
 
     if (search) {
       const pattern = `%${escapeLikePattern(search)}%`
-      query = query.where(sql`${evidence.title} LIKE ${pattern} ESCAPE '\\'`) as any
+      query = query.where(sql`${evidence.title} LIKE ${pattern} ESCAPE '\'`) as any
     }
     if (tag) {
       const pattern = `%${escapeLikePattern(tag)}%`
-      query = query.where(sql`${evidence.tags} LIKE ${pattern} ESCAPE '\\'`) as any
+      query = query.where(sql`${evidence.tags} LIKE ${pattern} ESCAPE '\'`) as any
     }
     if (sourceType) {
       query = query.where(eq(evidence.sourceType, sourceType)) as any
@@ -78,8 +78,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Title, source, and source type are required" }, { status: 400 })
     }
 
-    // ─── PHASE 1: IMMEDIATE SAVE ──────────────────────────────
-    // Save evidence immediately with basic metadata. AI processing happens in background.
     const pages = content ? Math.ceil(content.split(/\s+/).length / 500) : 0
     const tokens = content ? estimateTokens(content) : 0
     console.log(`[api/evidence] Saving: ${pages} pages, ${tokens} tokens`)
@@ -109,13 +107,13 @@ export async function POST(request: NextRequest) {
       newValue: JSON.stringify({ title, source, sourceType, pages, tokens }),
     })
 
-    // ─── PHASE 2: CREATE BACKGROUND JOB ───────────────────────
     const jobId = randomUUID()
     const stageNames = content ? [
       "Confidence Evaluation",
       "Topic Extraction",
       "Entity Extraction",
       "Timeline Extraction",
+      "Relationship Extraction",
       "Summarization",
       "Story Matching",
       "Finalization",
@@ -123,11 +121,8 @@ export async function POST(request: NextRequest) {
 
     createJob(jobId, stageNames)
 
-    // ─── PHASE 3: RETURN IMMEDIATELY ──────────────────────────
-    // Client gets the evidence + jobId immediately. Background worker starts after response.
     console.log(`[api/evidence] Saved in ${Date.now() - start}ms. Job: ${jobId}`)
 
-    // Start background processing (fire-and-forget)
     if (content) {
       processEvidenceAsync(result.id, content, title, source, sourceType, user.id, jobId, autoConfidence, confidence)
         .catch(err => {
@@ -152,7 +147,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// ─── BACKGROUND WORKER ─────────────────────────────────────────
 async function processEvidenceAsync(
   evidenceId: number,
   content: string,
@@ -172,6 +166,7 @@ async function processEvidenceAsync(
   let finalConfidence = manualConfidence || 0.5
   let extractedTopics: any = null
   let extractedEntityNames: string[] = []
+  let extractedEntitiesList: Array<{ name: string; type: string }> = []
 
   try {
     // Stage 1: Confidence Evaluation
@@ -207,30 +202,38 @@ async function processEvidenceAsync(
 
     // Stage 3: Entity Extraction
     startStage(jobId, "Entity Extraction", "Extracting named entities...")
+    let entityCount = 0
     try {
       const extractedEntities = await extractEntitiesFromText(content)
       for (const ent of extractedEntities) {
-        const existing = db.select().from(entities).where(eq(entities.name, ent.name)).get()
-        let entityId: number
-        if (!existing) {
-          const newEnt = db.insert(entities).values({
-            name: ent.name,
-            type: ent.type,
-            aliases: JSON.stringify(ent.aliases || []),
-            createdBy: userId,
-          }).returning().get()
-          entityId = newEnt.id
-        } else {
-          entityId = existing.id
+        try {
+          const existing = db.select().from(entities).where(eq(entities.name, ent.name)).get()
+          let entityId: number
+          if (!existing) {
+            const newEnt = db.insert(entities).values({
+              name: ent.name,
+              type: ent.type,
+              aliases: JSON.stringify(ent.aliases || []),
+              createdBy: userId,
+            }).returning().get()
+            entityId = newEnt.id
+          } else {
+            entityId = existing.id
+          }
+          db.insert(evidenceEntities).values({
+            evidenceId,
+            entityId,
+          }).run()
+          extractedEntityNames.push(ent.name)
+          extractedEntitiesList.push({ name: ent.name, type: ent.type })
+          entityCount++
+        } catch (innerErr: any) {
+          console.error(`[background] Failed to insert entity "${ent.name}":`, innerErr.message)
+          // Continue with next entity — do NOT abort the whole batch
         }
-        db.insert(evidenceEntities).values({
-          evidenceId,
-          entityId,
-        }).run()
-        extractedEntityNames.push(ent.name)
       }
-      aiMetadata.extractedEntities = extractedEntities.length
-      completeStage(jobId, "Entity Extraction", `${extractedEntities.length} entities found`)
+      aiMetadata.extractedEntities = entityCount
+      completeStage(jobId, "Entity Extraction", `${entityCount} entities found`)
     } catch (e: any) {
       console.error("[background] Entity extraction failed:", e.message)
       failStage(jobId, "Entity Extraction", e.message)
@@ -238,26 +241,68 @@ async function processEvidenceAsync(
 
     // Stage 4: Timeline Extraction
     startStage(jobId, "Timeline Extraction", "Finding dated events...")
+    let eventCount = 0
     try {
       const extractedEvents = await extractTimelineEvents(content)
       for (const evt of extractedEvents) {
-        db.insert(timelineEvents).values({
-          date: evt.date,
-          title: evt.title,
-          description: evt.description,
-          evidenceId,
-          entityIds: "[]",
-          createdBy: userId,
-        }).run()
+        try {
+          db.insert(timelineEvents).values({
+            date: evt.date,
+            title: evt.title,
+            description: evt.description,
+            evidenceId,
+            entityIds: "[]",
+            createdBy: userId,
+          }).run()
+          eventCount++
+        } catch (innerErr: any) {
+          console.error(`[background] Failed to insert timeline event "${evt.title}":`, innerErr.message)
+        }
       }
-      aiMetadata.extractedEvents = extractedEvents.length
-      completeStage(jobId, "Timeline Extraction", `${extractedEvents.length} events found`)
+      aiMetadata.extractedEvents = eventCount
+      completeStage(jobId, "Timeline Extraction", `${eventCount} events found`)
     } catch (e: any) {
       console.error("[background] Timeline extraction failed:", e.message)
       failStage(jobId, "Timeline Extraction", e.message)
     }
 
-    // Stage 5: Summarization
+    // Stage 5: Relationship Extraction (NEW STAGE)
+    startStage(jobId, "Relationship Extraction", "Discovering entity relationships...")
+    let relationshipCount = 0
+    try {
+      if (extractedEntitiesList.length >= 2) {
+        const extractedRels = await extractRelationshipsFromText(content, extractedEntitiesList)
+        for (const rel of extractedRels) {
+          try {
+            // Resolve source and target entity IDs
+            const sourceEnt = db.select().from(entities).where(eq(entities.name, rel.source)).get()
+            const targetEnt = db.select().from(entities).where(eq(entities.name, rel.target)).get()
+            if (!sourceEnt || !targetEnt) {
+              console.warn(`[background] Relationship skipped: entity not found for "${rel.source}" -> "${rel.target}"`)
+              continue
+            }
+            db.insert(relationships).values({
+              sourceId: sourceEnt.id,
+              targetId: targetEnt.id,
+              type: rel.type,
+              confidence: 0.7,
+              evidenceIds: JSON.stringify([evidenceId]),
+              createdBy: userId,
+            }).run()
+            relationshipCount++
+          } catch (innerErr: any) {
+            console.error(`[background] Failed to insert relationship "${rel.source}" -> "${rel.target}":`, innerErr.message)
+          }
+        }
+      }
+      aiMetadata.extractedRelationships = relationshipCount
+      completeStage(jobId, "Relationship Extraction", `${relationshipCount} relationships found`)
+    } catch (e: any) {
+      console.error("[background] Relationship extraction failed:", e.message)
+      failStage(jobId, "Relationship Extraction", e.message)
+    }
+
+    // Stage 6: Summarization
     startStage(jobId, "Summarization", "Generating document summary...")
     try {
       finalSummary = await generateEvidenceSummary(content, jobId)
@@ -286,7 +331,7 @@ async function processEvidenceAsync(
       aiMetadata: JSON.stringify(aiMetadata),
     }).where(eq(evidence.id, evidenceId)).run()
 
-    // Stage 6: Story Matching
+    // Stage 7: Story Matching
     startStage(jobId, "Story Matching", "Checking for story links...")
     try {
       const allStories = db.select().from(stories).where(eq(stories.status, "active")).all()
@@ -392,7 +437,6 @@ async function processEvidenceAsync(
   } catch (err: any) {
     console.error(`[background] Fatal error in job ${jobId}:`, err)
     failJob(jobId, err.message)
-    // Mark evidence as failed
     db.update(evidence).set({
       aiMetadata: JSON.stringify({ status: "failed", error: err.message }),
     }).where(eq(evidence.id, evidenceId)).run()

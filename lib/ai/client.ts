@@ -6,6 +6,7 @@ export interface AIGenerationOptions {
   temperature?: number
   maxTokens?: number
   retries?: number
+  timeoutMs?: number
 }
 
 export async function generateWithAI(
@@ -13,10 +14,11 @@ export async function generateWithAI(
   options: AIGenerationOptions = {}
 ): Promise<string> {
   const apiKey = process.env.CEREBRAS_API_KEY
-  const model = process.env.CEREBRAS_MODEL || "llama3.1-70b"
+  const model = process.env.CEREBRAS_MODEL || "gemma-4-31b"
   const temperature = options.temperature ?? parseFloat(process.env.AI_TEMPERATURE || "0.3")
   const maxTokens = options.maxTokens ?? parseInt(process.env.AI_MAX_TOKENS || "4096")
   const maxRetries = options.retries ?? 3
+  const timeoutMs = options.timeoutMs ?? 60000 // 60 second default timeout
 
   if (!apiKey) {
     throw new Error("CEREBRAS_API_KEY not configured")
@@ -32,9 +34,15 @@ export async function generateWithAI(
   let lastError: Error | null = null
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
     try {
+      console.log(`[ai/client] Attempt ${attempt}/${maxRetries} — ${inputTokens} input tokens, model: ${model}`)
+
       const response = await fetch("https://api.cerebras.ai/v1/chat/completions", {
         method: "POST",
+        signal: controller.signal,
         headers: {
           "Authorization": `Bearer ${apiKey}`,
           "Content-Type": "application/json",
@@ -50,12 +58,14 @@ export async function generateWithAI(
         }),
       })
 
+      clearTimeout(timeoutId)
+
       if (!response.ok) {
         const errorText = await response.text()
         // Rate limit hit from API side
         if (response.status === 429) {
           const retryAfter = parseInt(response.headers.get("retry-after") || "60")
-          console.log(`[ai/client] Rate limited by API. Retrying after ${retryAfter}s...`)
+          console.log(`[ai/client] Rate limited by API (429). Retrying after ${retryAfter}s...`)
           await sleep(retryAfter * 1000)
           continue
         }
@@ -64,13 +74,22 @@ export async function generateWithAI(
 
       const data = await response.json()
       const content = data.choices?.[0]?.message?.content || ""
-      console.log(`[ai/client] Success on attempt ${attempt}. Input: ${inputTokens}tok, Output: ~${estimateTokens(content)}tok`)
+      const usage = data.usage
+      console.log(`[ai/client] ✅ Success on attempt ${attempt}. Input: ${usage?.prompt_tokens || inputTokens}tok, Output: ${usage?.completion_tokens || estimateTokens(content)}tok, Total: ${usage?.total_tokens || "?"}tok`)
       return content
     } catch (err: any) {
+      clearTimeout(timeoutId)
       lastError = err
-      console.warn(`[ai/client] Attempt ${attempt}/${maxRetries} failed:`, err.message)
+
+      if (err.name === "AbortError") {
+        console.error(`[ai/client] ⏱️ Attempt ${attempt} ABORTED after ${timeoutMs}ms (timeout)`)
+      } else {
+        console.error(`[ai/client] ❌ Attempt ${attempt}/${maxRetries} failed:`, err.message)
+      }
+
       if (attempt < maxRetries) {
         const backoff = Math.min(1000 * Math.pow(2, attempt), 30000)
+        console.log(`[ai/client] Backing off ${backoff}ms before retry...`)
         await sleep(backoff)
       }
     }

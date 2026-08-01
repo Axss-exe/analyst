@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/db/client"
-import { evidence, storyEvidence, entities, evidenceEntities, timelineEvents, stories } from "@/db/schema"
-import { eq } from "drizzle-orm"
+import { evidence, storyEvidence, entities, evidenceEntities, timelineEvents, stories, relationships } from "@/db/schema"
+import { eq, or, inArray } from "drizzle-orm"
 import { requireAuth } from "@/lib/auth"
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
@@ -61,6 +61,54 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       description: timelineEvents.description,
     }).from(timelineEvents).where(eq(timelineEvents.evidenceId, id)).all()
 
+    // NEW: Fetch relationships for this evidence's entities
+    const entityIds = linkedEntities.map(e => e.id)
+    let linkedRelationships: any[] = []
+    if (entityIds.length > 0) {
+      const rels = db.select({
+        id: relationships.id,
+        sourceId: relationships.sourceId,
+        targetId: relationships.targetId,
+        type: relationships.type,
+        confidence: relationships.confidence,
+        evidenceIds: relationships.evidenceIds,
+      }).from(relationships)
+        .where(or(
+          inArray(relationships.sourceId, entityIds),
+          inArray(relationships.targetId, entityIds)
+        ))
+        .all()
+
+      // Resolve names for the related entities
+      const relatedEntityIds = new Set<number>()
+      rels.forEach(r => {
+        relatedEntityIds.add(r.sourceId)
+        relatedEntityIds.add(r.targetId)
+      })
+
+      const relatedEntities = db.select({
+        id: entities.id,
+        name: entities.name,
+        type: entities.type,
+      }).from(entities)
+        .where(inArray(entities.id, [...relatedEntityIds]))
+        .all()
+
+      const entityNameMap = new Map(relatedEntities.map(e => [e.id, e]))
+
+      linkedRelationships = rels.map(r => ({
+        id: r.id,
+        sourceId: r.sourceId,
+        targetId: r.targetId,
+        sourceName: entityNameMap.get(r.sourceId)?.name || "Unknown",
+        targetName: entityNameMap.get(r.targetId)?.name || "Unknown",
+        sourceType: entityNameMap.get(r.sourceId)?.type || "unknown",
+        targetType: entityNameMap.get(r.targetId)?.type || "unknown",
+        type: r.type,
+        confidence: r.confidence,
+      }))
+    }
+
     console.log(`[api/evidence/${id}] TOTAL: ${Date.now() - start}ms`)
 
     return NextResponse.json({
@@ -68,6 +116,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       linkedStories,
       linkedEntities,
       timelineEvents: events,
+      relationships: linkedRelationships,
     })
   } catch (error: any) {
     console.error(`[api/evidence/${params.id}] ERROR:`, error)

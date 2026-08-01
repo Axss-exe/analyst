@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { AlertCircle, Upload, Sparkles } from "lucide-react"
+import { AlertCircle, Upload, Sparkles, Calendar } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
 export default function NewEvidencePage() {
@@ -22,6 +22,7 @@ export default function NewEvidencePage() {
     title: "",
     source: "",
     sourceType: "",
+    publicationDate: "",
     content: "",
     summary: "",
     tags: "",
@@ -43,6 +44,7 @@ export default function NewEvidencePage() {
           title: formData.title,
           source: formData.source,
           sourceType: formData.sourceType,
+          publicationDate: formData.publicationDate || undefined,
           content: formData.content,
           summary: formData.summary || undefined,
           tags: formData.tags ? formData.tags.split(",").map(t => t.trim()) : [],
@@ -147,6 +149,23 @@ export default function NewEvidencePage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            {/* NEW: Publication Date field */}
+            <div className="space-y-2">
+              <Label htmlFor="publicationDate" className="flex items-center gap-2">
+                <Calendar className="w-4 h-4" />
+                Publication Date
+              </Label>
+              <Input
+                id="publicationDate"
+                type="date"
+                value={formData.publicationDate}
+                onChange={e => setFormData({ ...formData, publicationDate: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                When was this document originally published? Used for timeline extraction and sorting.
+              </p>
             </div>
 
             <div className="space-y-2">
