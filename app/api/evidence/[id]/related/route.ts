@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/db/client"
-import { evidence, storyEvidence, evidenceEntities, entities } from "@/db/schema"
+import { evidence, storyEvidence, evidenceEntities } from "@/db/schema"
 import { eq, inArray, sql } from "drizzle-orm"
 import { requireAuth } from "@/lib/auth"
 
@@ -12,7 +12,6 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: "Invalid evidence ID" }, { status: 400 })
     }
 
-    // Get target evidence — only id, title, aiMetadata (not the full row with huge summary)
     const target = db.select({ id: evidence.id, title: evidence.title, aiMetadata: evidence.aiMetadata })
       .from(evidence)
       .where(eq(evidence.id, evidenceId))
@@ -21,21 +20,18 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: "Evidence not found" }, { status: 404 })
     }
 
-    // Get target's story links
     const targetStoryLinks = db.select({ storyId: storyEvidence.storyId })
       .from(storyEvidence)
       .where(eq(storyEvidence.evidenceId, evidenceId))
       .all()
     const targetStoryIds = targetStoryLinks.map(s => s.storyId)
 
-    // Get target's entities
     const targetEntityLinks = db.select({ entityId: evidenceEntities.entityId })
       .from(evidenceEntities)
       .where(eq(evidenceEntities.evidenceId, evidenceId))
       .all()
     const targetEntityIds = targetEntityLinks.map(e => e.entityId)
 
-    // Find related evidence by shared story — only select lightweight columns
     let storyRelated: any[] = []
     if (targetStoryIds.length > 0) {
       const storyEvidenceLinks = db.select({ evidenceId: storyEvidence.evidenceId })
@@ -53,7 +49,6 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       }
     }
 
-    // Find related evidence by shared entities
     let entityRelated: any[] = []
     if (targetEntityIds.length > 0) {
       const entityEvidenceLinks = db.select({ evidenceId: evidenceEntities.evidenceId })
@@ -71,7 +66,6 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       }
     }
 
-    // Find related by topic overlap — only lightweight columns
     let topicRelated: any[] = []
     try {
       const meta = target.aiMetadata ? JSON.parse(target.aiMetadata) : {}

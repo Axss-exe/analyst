@@ -1,38 +1,61 @@
 import { generateWithAI } from "./client"
+import { estimateTokens, splitByTokenBudget } from "./token-counter"
+import { startStage, completeStage, failStage } from "@/lib/jobs"
 
-const MAX_CHUNK_SIZE = 12000
-const CHUNK_OVERLAP = 500
+/**
+ * Generates a factual summary from evidence text.
+ * For large documents, uses a map-reduce chunking strategy with rate limiting.
+ * Designed to handle 600+ pages without freezing.
+ */
+export async function generateEvidenceSummary(
+  evidenceText: string,
+  jobId?: string
+): Promise<string> {
+  const pages = Math.ceil(estimateTokens(evidenceText) / 750)
+  console.log(`[summary] Document: ${pages} pages, ${estimateTokens(evidenceText)} tokens`)
 
-function splitIntoChunks(text: string, maxSize: number, overlap: number): string[] {
-  if (text.length <= maxSize) return [text]
-  const chunks: string[] = []
-  let start = 0
-  while (start < text.length) {
-    const end = Math.min(start + maxSize, text.length)
-    let breakPoint = end
-    if (end < text.length) {
-      const searchWindow = text.slice(Math.max(start, end - 200), end)
-      const lastSentence = Math.max(
-        searchWindow.lastIndexOf('. '),
-        searchWindow.lastIndexOf('! '),
-        searchWindow.lastIndexOf('? ')
-      )
-      if (lastSentence > 0) {
-        breakPoint = Math.max(start, end - 200) + lastSentence + 1
-      }
-    }
-    chunks.push(text.slice(start, breakPoint).trim())
-    start = breakPoint - overlap
-    if (start >= breakPoint) start = breakPoint
+  // Small doc: single call
+  if (pages <= 40) {
+    if (jobId) startStage(jobId, "Summarization", "Analyzing document...")
+    const result = await summarizeSingle(evidenceText)
+    if (jobId) completeStage(jobId, "Summarization", "Summary complete")
+    return result
   }
-  return chunks.filter(c => c.length > 0)
+
+  // Large doc: map-reduce with progress tracking
+  if (jobId) startStage(jobId, "Summarization", `Chunking ${pages}-page document...`)
+  const chunks = splitByTokenBudget(evidenceText, 50000, 200)
+  console.log(`[summary] Split into ${chunks.length} chunks`)
+  if (jobId) completeStage(jobId, "Summarization", `${chunks.length} chunks created`)
+
+  // Map: summarize each chunk
+  if (jobId) startStage(jobId, "Chunk Analysis", `Processing ${chunks.length} chunks...`)
+  const chunkSummaries: string[] = []
+
+  for (let i = 0; i < chunks.length; i++) {
+    if (jobId) startStage(jobId, "Chunk Analysis", `Chunk ${i + 1}/${chunks.length}...`)
+    try {
+      const summary = await summarizeChunk(chunks[i], i + 1, chunks.length)
+      chunkSummaries.push(summary)
+      if (jobId) completeStage(jobId, "Chunk Analysis", `Chunk ${i + 1}/${chunks.length} done`)
+    } catch (e: any) {
+      console.error(`[summary] Chunk ${i + 1} failed:`, e.message)
+      chunkSummaries.push(`[Chunk ${i + 1} failed to process]`)
+      if (jobId) failStage(jobId, "Chunk Analysis", `Chunk ${i + 1} failed: ${e.message}`)
+    }
+  }
+
+  // Reduce: synthesize final summary
+  if (jobId) startStage(jobId, "Synthesis", "Combining chunk summaries...")
+  const combined = chunkSummaries.join("\n\n---\n\n")
+  const finalSummary = await synthesizeSummaries(combined, chunks.length)
+  if (jobId) completeStage(jobId, "Synthesis", "Final summary ready")
+
+  return finalSummary
 }
 
-export async function generateEvidenceSummary(evidenceText: string): Promise<string> {
-  const chunks = splitIntoChunks(evidenceText, MAX_CHUNK_SIZE, CHUNK_OVERLAP)
-
-  if (chunks.length === 1) {
-    const prompt = `Analyze the following evidence and provide a structured factual summary.
+async function summarizeSingle(text: string): Promise<string> {
+  const prompt = `Analyze the following evidence and provide a structured factual summary.
 
 CRITICAL RULES:
 - Base the summary ONLY on facts explicitly stated in the text
@@ -40,23 +63,22 @@ CRITICAL RULES:
 - Synthesize information into your own analytical language
 - Include: key facts, named entities, specific dates/figures, stated relationships
 - Exclude: speculation, opinions, or claims not supported by the text
-- If the text is a government plan or policy document, capture: objectives, timelines, responsible parties, budget figures, and stated outcomes
+- If this is a government plan or policy document, capture: objectives, timelines, responsible parties, budget figures, and stated outcomes
 
 Evidence:
-${chunks[0]}
+${text}
 
 Provide a concise analytical summary in 2-3 paragraphs.`
 
-    return generateWithAI(prompt, {
-      systemPrompt: "You are a senior intelligence analyst. Summarize evidence analytically. NEVER copy text verbatim. Synthesize facts into original prose.",
-      temperature: 0.2,
-      maxTokens: 1024,
-    })
-  }
+  return generateWithAI(prompt, {
+    systemPrompt: "You are a senior intelligence analyst. Summarize evidence analytically. NEVER copy text verbatim. Synthesize facts into original prose.",
+    temperature: 0.2,
+    maxTokens: 2048,
+  })
+}
 
-  const chunkSummaries: string[] = []
-  for (let i = 0; i < chunks.length; i++) {
-    const prompt = `You are processing chunk ${i + 1} of ${chunks.length} from a large intelligence document.
+async function summarizeChunk(text: string, index: number, total: number): Promise<string> {
+  const prompt = `You are processing chunk ${index} of ${total} from a large intelligence document.
 
 CRITICAL RULES:
 - Extract ONLY facts explicitly stated in this chunk
@@ -64,22 +86,20 @@ CRITICAL RULES:
 - Use analytical, synthesized language
 - Capture: key facts, named entities, dates, figures, relationships, stated objectives
 
-Chunk ${i + 1}/${chunks.length}:
-${chunks[i]}
+Chunk ${index}/${total}:
+${text}
 
-Provide a concise factual summary of this chunk (max 200 words).`
+Provide a concise factual summary of this chunk (max 300 words).`
 
-    const summary = await generateWithAI(prompt, {
-      systemPrompt: "You are a document analysis system. Extract and synthesize facts. Never copy verbatim.",
-      temperature: 0.2,
-      maxTokens: 512,
-    })
-    chunkSummaries.push(summary)
-  }
+  return generateWithAI(prompt, {
+    systemPrompt: "You are a document analysis system. Extract and synthesize facts. Never copy verbatim.",
+    temperature: 0.2,
+    maxTokens: 512,
+  })
+}
 
-  const combinedSummaries = chunkSummaries.join("\n\n---\n\n")
-
-  const finalPrompt = `You are synthesizing ${chunks.length} chunk summaries into a single coherent intelligence summary.
+async function synthesizeSummaries(combinedSummaries: string, chunkCount: number): Promise<string> {
+  const prompt = `You are synthesizing ${chunkCount} chunk summaries into a single coherent intelligence summary.
 
 CRITICAL RULES:
 - Produce an original analytical summary — NEVER copy from the chunk summaries verbatim
@@ -91,11 +111,11 @@ CRITICAL RULES:
 Chunk Summaries:
 ${combinedSummaries}
 
-Provide the final synthesized summary (max 400 words).`
+Provide the final synthesized summary (max 600 words).`
 
-  return generateWithAI(finalPrompt, {
+  return generateWithAI(prompt, {
     systemPrompt: "You are a senior intelligence analyst synthesizing multi-chunk document analysis. Produce original prose. Never copy verbatim.",
     temperature: 0.2,
-    maxTokens: 1024,
+    maxTokens: 2048,
   })
 }

@@ -9,12 +9,12 @@ export async function GET() {
     const user = await requireAdmin()
 
     const stats = {
-      totalUsers: db.select({ count: sql<number>`count(*)` }).from(users).get()?.count || 0,
-      totalEvidence: db.select({ count: sql<number>`count(*)` }).from(evidence).get()?.count || 0,
-      totalStories: db.select({ count: sql<number>`count(*)` }).from(stories).get()?.count || 0,
-      totalEntities: db.select({ count: sql<number>`count(*)` }).from(entities).get()?.count || 0,
-      totalTasks: db.select({ count: sql<number>`count(*)` }).from(researchTasks).get()?.count || 0,
-      totalBriefs: db.select({ count: sql<number>`count(*)` }).from(generatedBriefs).get()?.count || 0,
+      totalUsers: db.select({ count: sql`count(*)` }).from(users).get()?.count || 0,
+      totalEvidence: db.select({ count: sql`count(*)` }).from(evidence).get()?.count || 0,
+      totalStories: db.select({ count: sql`count(*)` }).from(stories).get()?.count || 0,
+      totalEntities: db.select({ count: sql`count(*)` }).from(entities).get()?.count || 0,
+      totalTasks: db.select({ count: sql`count(*)` }).from(researchTasks).get()?.count || 0,
+      totalBriefs: db.select({ count: sql`count(*)` }).from(generatedBriefs).get()?.count || 0,
       recentActivity: db.select().from(auditLog).orderBy(sql`created_at DESC`).limit(10).all(),
     }
 

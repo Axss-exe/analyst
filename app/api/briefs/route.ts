@@ -1,34 +1,27 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/db/client"
-import { generatedBriefs, stories, evidence, storyEvidence, templates } from "@/db/schema"
-import { eq, like, desc, sql } from "drizzle-orm"
+import { stories, evidence, storyEvidence, generatedBriefs, notifications } from "@/db/schema"
+import { eq, desc, sql } from "drizzle-orm"
 import { requireAuth } from "@/lib/auth"
-import { logAction } from "@/lib/audit"
-import { notifyBriefGenerated } from "@/lib/notifications"
-import { generateBriefContent } from "@/lib/ai"
+import { createNotification } from "@/lib/notifications"
+import { generateBriefContent } from "@/lib/ai/stories"
 
 export async function GET(request: NextRequest) {
   try {
     const user = await requireAuth()
     const { searchParams } = new URL(request.url)
-    const search = searchParams.get("search") || ""
     const storyId = searchParams.get("storyId")
-    const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 100)
-    const offset = parseInt(searchParams.get("offset") || "0")
 
-    let query = db.select().from(generatedBriefs)
-    if (search) query = query.where(like(generatedBriefs.headline, `%${search}%`)) as any
-    if (storyId) query = query.where(eq(generatedBriefs.storyId, parseInt(storyId))) as any
+    if (storyId) {
+      const briefs = db.select().from(generatedBriefs)
+        .where(eq(generatedBriefs.storyId, parseInt(storyId)))
+        .orderBy(desc(generatedBriefs.createdAt))
+        .all()
+      return NextResponse.json({ briefs })
+    }
 
-    const items = query.orderBy(desc(generatedBriefs.createdAt)).limit(limit).offset(offset).all()
-    const count = db.select({ count: sql<number>`count(*)` }).from(generatedBriefs).get()
-
-    const enriched = items.map((brief) => {
-      const story = db.select({ title: stories.title }).from(stories).where(eq(stories.id, brief.storyId)).get()
-      return { ...brief, storyTitle: story?.title || "Unknown" }
-    })
-
-    return NextResponse.json({ briefs: enriched, total: count?.count || 0 })
+    const allBriefs = db.select().from(generatedBriefs).orderBy(desc(generatedBriefs.createdAt)).limit(50).all()
+    return NextResponse.json({ briefs: allBriefs })
   } catch (error: any) {
     if (error.message === "Unauthorized") return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("Briefs list error:", error)
@@ -40,87 +33,57 @@ export async function POST(request: NextRequest) {
   try {
     const user = await requireAuth()
     const body = await request.json()
-    const { storyId, generationMode, selectedEvidenceIds, templateId } = body
+    const { storyId, mode = "full" } = body
 
-    if (!storyId || !generationMode) {
-      return NextResponse.json({ error: "Story ID and generation mode required" }, { status: 400 })
+    if (!storyId) {
+      return NextResponse.json({ error: "Story ID required" }, { status: 400 })
     }
 
     const story = db.select().from(stories).where(eq(stories.id, storyId)).get()
-    if (!story) return NextResponse.json({ error: "Story not found" }, { status: 404 })
-
-    let evidenceItems: typeof evidence.$inferSelect[] = []
-
-    if (generationMode === "full") {
-      evidenceItems = db
-        .select({ evidence: evidence })
-        .from(storyEvidence)
-        .innerJoin(evidence, eq(storyEvidence.evidenceId, evidence.id))
-        .where(eq(storyEvidence.storyId, storyId))
-        .all()
-        .map((le) => le.evidence)
-    } else if (generationMode === "partial" && selectedEvidenceIds) {
-      evidenceItems = db.select().from(evidence)
-        .where(sql`${evidence.id} IN (${selectedEvidenceIds.join(",")})`)
-        .all()
-    } else if (generationMode === "since_last") {
-      const lastBrief = db.select().from(generatedBriefs)
-        .where(eq(generatedBriefs.storyId, storyId))
-        .orderBy(desc(generatedBriefs.createdAt))
-        .limit(1)
-        .get()
-
-      const lastDate = lastBrief?.createdAt || "1970-01-01"
-      evidenceItems = db
-        .select({ evidence: evidence })
-        .from(storyEvidence)
-        .innerJoin(evidence, eq(storyEvidence.evidenceId, evidence.id))
-        .where(eq(storyEvidence.storyId, storyId))
-        .all()
-        .map((le) => le.evidence)
-        .filter((e) => e.createdAt > lastDate)
+    if (!story) {
+      return NextResponse.json({ error: "Story not found" }, { status: 404 })
     }
 
-    if (evidenceItems.length === 0) {
-      return NextResponse.json({ error: "No evidence found for generation" }, { status: 400 })
-    }
+    const linkedEvidence = db.select({ evidenceId: storyEvidence.evidenceId })
+      .from(storyEvidence)
+      .where(eq(storyEvidence.storyId, storyId))
+      .all()
+
+    const evidenceIds = linkedEvidence.map(le => le.evidenceId)
+    const evidenceItems = db.select().from(evidence).where(sql`${evidence.id} IN ${evidenceIds}`).all()
 
     const briefData = await generateBriefContent({
       storyTitle: story.title,
       storyOverview: story.overview,
-      evidenceItems: evidenceItems.map((e) => ({ title: e.title, summary: e.summary, source: e.source })),
-      mode: generationMode,
+      evidenceItems: evidenceItems.map(e => ({ title: e.title, summary: e.summary, source: e.source })),
+      mode,
     })
 
-    const version = (db.select({ count: sql<number>`count(*)` }).from(generatedBriefs).where(eq(generatedBriefs.storyId, storyId)).get()?.count || 0) + 1
-
-    const result = db.insert(generatedBriefs).values({
+    const brief = db.insert(generatedBriefs).values({
       storyId,
       headline: briefData.headline,
-      content: JSON.stringify(briefData),
-      version,
-      generationMode,
-      evidenceIds: JSON.stringify(evidenceItems.map((e) => e.id)),
-      templateId: templateId || null,
-      promptVersion: "1.0",
+      executiveSummary: briefData.executiveSummary,
+      detailedNarrative: briefData.detailedNarrative,
+      keyFindings: JSON.stringify(briefData.keyFindings),
+      references: JSON.stringify(briefData.references),
+      mode,
       llmModel: process.env.CEREBRAS_MODEL || "llama3.1-70b",
       createdBy: user.id,
     }).returning().get()
 
-    await logAction({
+    await createNotification({
       userId: user.id,
-      action: "GENERATE_BRIEF",
-      targetType: "brief",
-      targetId: result.id,
-      newValue: JSON.stringify({ headline: briefData.headline, mode: generationMode, evidenceCount: evidenceItems.length }),
+      type: "brief_generated",
+      title: "Brief Generated",
+      message: `A new ${mode} brief was generated for "${story.title}"`,
+      relatedObjectType: "brief",
+      relatedObjectId: brief.id,
     })
 
-    await notifyBriefGenerated(result.id, briefData.headline, storyId, story.title, user.id)
-
-    return NextResponse.json({ brief: result, content: briefData })
+    return NextResponse.json({ brief })
   } catch (error: any) {
     if (error.message === "Unauthorized") return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    console.error("Brief generate error:", error)
+    console.error("Brief generation error:", error)
     return NextResponse.json({ error: "Failed to generate brief" }, { status: 500 })
   }
 }

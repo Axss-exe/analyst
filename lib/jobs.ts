@@ -1,0 +1,119 @@
+export type JobStatus = "queued" | "running" | "completed" | "failed" | "cancelled"
+
+export interface JobStage {
+  name: string
+  status: JobStatus
+  message: string
+  startedAt?: number
+  completedAt?: number
+}
+
+export interface Job {
+  id: string
+  status: JobStatus
+  currentStage: string
+  progress: number
+  stages: JobStage[]
+  result?: any
+  error?: string
+  createdAt: number
+  updatedAt: number
+}
+
+const jobs = new Map<string, Job>()
+
+export function createJob(id: string, stageNames: string[]): Job {
+  const job: Job = {
+    id,
+    status: "queued",
+    currentStage: "Initializing...",
+    progress: 0,
+    stages: stageNames.map(name => ({
+      name,
+      status: "queued",
+      message: "Waiting...",
+    })),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  }
+  jobs.set(id, job)
+  return job
+}
+
+export function startStage(jobId: string, stageName: string, message?: string) {
+  const job = jobs.get(jobId)
+  if (!job) return
+  const stage = job.stages.find(s => s.name === stageName)
+  if (stage) {
+    stage.status = "running"
+    stage.message = message || "Processing..."
+    stage.startedAt = Date.now()
+  }
+  job.status = "running"
+  job.currentStage = stageName
+  job.updatedAt = Date.now()
+}
+
+export function completeStage(jobId: string, stageName: string, message?: string) {
+  const job = jobs.get(jobId)
+  if (!job) return
+  const stage = job.stages.find(s => s.name === stageName)
+  if (stage) {
+    stage.status = "completed"
+    stage.message = message || "Done"
+    stage.completedAt = Date.now()
+  }
+  const completed = job.stages.filter(s => s.status === "completed").length
+  job.progress = Math.round((completed / job.stages.length) * 100)
+  job.updatedAt = Date.now()
+}
+
+export function failStage(jobId: string, stageName: string, error: string) {
+  const job = jobs.get(jobId)
+  if (!job) return
+  const stage = job.stages.find(s => s.name === stageName)
+  if (stage) {
+    stage.status = "failed"
+    stage.message = error
+    stage.completedAt = Date.now()
+  }
+  job.status = "failed"
+  job.error = error
+  job.updatedAt = Date.now()
+}
+
+export function completeJob(jobId: string, result?: any) {
+  const job = jobs.get(jobId)
+  if (!job) return
+  job.status = "completed"
+  job.progress = 100
+  job.currentStage = "Complete"
+  job.result = result
+  job.updatedAt = Date.now()
+}
+
+export function failJob(jobId: string, error: string) {
+  const job = jobs.get(jobId)
+  if (!job) return
+  job.status = "failed"
+  job.error = error
+  job.updatedAt = Date.now()
+}
+
+export function getJob(jobId: string): Job | undefined {
+  return jobs.get(jobId)
+}
+
+export function listJobs(): Job[] {
+  return Array.from(jobs.values())
+}
+
+// Cleanup old jobs every 10 minutes
+setInterval(() => {
+  const cutoff = Date.now() - 1000 * 60 * 60 // 1 hour
+  for (const [id, job] of jobs) {
+    if (job.updatedAt < cutoff) {
+      jobs.delete(id)
+    }
+  }
+}, 1000 * 60 * 10)

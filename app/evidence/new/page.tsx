@@ -2,198 +2,249 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import Link from "next/link"
-import { AppShell } from "@/components/app-shell"
+import { AIProgressModal } from "@/components/ai-progress-modal"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ArrowLeft, Loader2, Info } from "lucide-react"
+import { AlertCircle, Upload, Sparkles } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 export default function NewEvidencePage() {
   const router = useRouter()
-  const [title, setTitle] = useState("")
-  const [source, setSource] = useState("")
-  const [sourceType, setSourceType] = useState("")
-  const [content, setContent] = useState("")
-  const [publicationDate, setPublicationDate] = useState("")
-  const [confidence, setConfidence] = useState("0.5")
-  const [tags, setTags] = useState("")
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
-  const [autoConfidence, setAutoConfidence] = useState(true)
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [formData, setFormData] = useState({
+    title: "",
+    source: "",
+    sourceType: "",
+    content: "",
+    summary: "",
+    tags: "",
+    confidence: "",
+    autoConfidence: true,
+  })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError("")
     setLoading(true)
+    setError(null)
+    setModalOpen(true)
 
     try {
       const res = await fetch("/api/evidence", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title,
-          source,
-          sourceType,
-          content,
-          publicationDate: publicationDate || undefined,
-          confidence: autoConfidence ? undefined : parseFloat(confidence),
-          autoConfidence,
-          tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+          title: formData.title,
+          source: formData.source,
+          sourceType: formData.sourceType,
+          content: formData.content,
+          summary: formData.summary || undefined,
+          tags: formData.tags ? formData.tags.split(",").map(t => t.trim()) : [],
+          confidence: formData.confidence ? parseFloat(formData.confidence) : undefined,
+          autoConfidence: formData.autoConfidence,
         }),
       })
+
       const data = await res.json()
 
       if (!res.ok) {
-        setError(data.error || "Failed to create evidence")
-        setLoading(false)
-        return
+        throw new Error(data.error || "Failed to create evidence")
       }
 
-      router.push(`/evidence/${data.evidence.id}`)
-    } catch {
-      setError("Network error")
+      setJobId(data.jobId)
+      console.log("Evidence saved, job:", data.jobId)
+    } catch (err: any) {
+      setError(err.message)
+      setModalOpen(false)
       setLoading(false)
     }
   }
 
-  const confidenceLevels = [
-    { value: "0.2", label: "Low (20%)", desc: "Unverified source, anonymous claims, or high bias indicators" },
-    { value: "0.5", label: "Medium (50%)", desc: "Some corroboration possible, secondary source, mixed signals" },
-    { value: "0.7", label: "High (70%)", desc: "Reputable source, specific data, internally consistent" },
-    { value: "0.9", label: "Very High (90%)", desc: "Official document, primary source, auditable data" },
-  ]
+  const handleComplete = () => {
+    setModalOpen(false)
+    setLoading(false)
+    router.push("/evidence")
+    router.refresh()
+  }
+
+  const wordCount = formData.content.trim().split(/\s+/).filter(Boolean).length
+  const pageEstimate = Math.ceil(wordCount / 500)
+  const tokenEstimate = Math.ceil(wordCount * 1.4)
 
   return (
-    <AppShell>
-      <div className="mx-auto max-w-3xl space-y-6">
-        <div className="flex items-center gap-2">
-          <Link href="/evidence">
-            <Button variant="ghost" size="sm"><ArrowLeft className="mr-1 h-4 w-4" /> Back</Button>
-          </Link>
+    <div className="max-w-3xl mx-auto p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Upload New Evidence</h1>
+        <div className="text-sm text-muted-foreground">
+          {wordCount > 0 && (
+            <span>~{pageEstimate} pages · ~{tokenEstimate.toLocaleString()} tokens</span>
+          )}
         </div>
+      </div>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Upload className="w-5 h-5" />
+              Document Details
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="title">Title *</Label>
+              <Input
+                id="title"
+                value={formData.title}
+                onChange={e => setFormData({ ...formData, title: e.target.value })}
+                placeholder="e.g., DRC Mining Contract Review 2024"
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="source">Source *</Label>
+                <Input
+                  id="source"
+                  value={formData.source}
+                  onChange={e => setFormData({ ...formData, source: e.target.value })}
+                  placeholder="e.g., Ministry of Mines"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="sourceType">Source Type *</Label>
+                <Select
+                  value={formData.sourceType}
+                  onValueChange={v => setFormData({ ...formData, sourceType: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select type..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="government">Government Document</SelectItem>
+                    <SelectItem value="report">Report</SelectItem>
+                    <SelectItem value="news">News Article</SelectItem>
+                    <SelectItem value="website">Website</SelectItem>
+                    <SelectItem value="pdf">PDF Document</SelectItem>
+                    <SelectItem value="word">Word Document</SelectItem>
+                    <SelectItem value="analyst_note">Analyst Note</SelectItem>
+                    <SelectItem value="image">Image / Scan</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="content">Document Content *</Label>
+              <Textarea
+                id="content"
+                value={formData.content}
+                onChange={e => setFormData({ ...formData, content: e.target.value })}
+                placeholder="Paste the full document text here..."
+                rows={12}
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                Supports documents up to 600+ pages. AI processing happens in the background with rate-limited Cerebras API calls.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Add New Evidence</CardTitle>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Sparkles className="w-5 h-5" />
+              AI Processing Options
+            </CardTitle>
           </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="title">Title *</Label>
-                <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} required />
-              </div>
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="autoConfidence"
+                checked={formData.autoConfidence}
+                onChange={e => setFormData({ ...formData, autoConfidence: e.target.checked })}
+                className="rounded border-gray-300"
+              />
+              <Label htmlFor="autoConfidence" className="font-normal cursor-pointer">
+                Auto-evaluate source confidence using AI
+              </Label>
+            </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="source">Source *</Label>
-                  <Input id="source" value={source} onChange={(e) => setSource(e.target.value)} required placeholder="URL, document name, etc." />
-                </div>
-                <div className="space-y-2">
-                  <Label>Source Type *</Label>
-                  <Select value={sourceType} onValueChange={setSourceType} required>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pdf">PDF Document</SelectItem>
-                      <SelectItem value="word">Word Document</SelectItem>
-                      <SelectItem value="website">Website</SelectItem>
-                      <SelectItem value="news">News Article</SelectItem>
-                      <SelectItem value="image">Image / OCR</SelectItem>
-                      <SelectItem value="report">Report</SelectItem>
-                      <SelectItem value="government">Government Document</SelectItem>
-                      <SelectItem value="analyst_note">Analyst Note</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
+            {!formData.autoConfidence && (
               <div className="space-y-2">
-                <Label htmlFor="content">Content / Full Text</Label>
-                <Textarea
-                  id="content"
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  rows={8}
-                  placeholder="Paste the full text content here. AI will automatically extract summary, entities, and timeline events. For large documents (500+ pages), the system will chunk and summarize automatically."
+                <Label htmlFor="confidence">Manual Confidence (0.0 - 1.0)</Label>
+                <Input
+                  id="confidence"
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={formData.confidence}
+                  onChange={e => setFormData({ ...formData, confidence: e.target.value })}
+                  placeholder="0.75"
                 />
               </div>
+            )}
 
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="pubDate">Publication Date</Label>
-                  <Input id="pubDate" type="date" value={publicationDate} onChange={(e) => setPublicationDate(e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor="confidence">Confidence</Label>
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="checkbox"
-                        id="autoConfidence"
-                        checked={autoConfidence}
-                        onChange={(e) => setAutoConfidence(e.target.checked)}
-                        className="rounded border"
-                      />
-                      <label htmlFor="autoConfidence" className="text-xs text-muted-foreground">Auto</label>
-                    </div>
-                  </div>
-                  <Select value={confidence} onValueChange={setConfidence} disabled={autoConfidence}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {confidenceLevels.map((c) => (
-                        <SelectItem key={c.value} value={c.value}>
-                          <div className="flex flex-col">
-                            <span>{c.label}</span>
-                            <span className="text-[10px] text-muted-foreground">{c.desc}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="tags">Tags</Label>
-                  <Input id="tags" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="comma, separated" />
-                </div>
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="summary">Manual Summary (optional — leave blank for AI generation)</Label>
+              <Textarea
+                id="summary"
+                value={formData.summary}
+                onChange={e => setFormData({ ...formData, summary: e.target.value })}
+                placeholder="If you already have a summary, paste it here. Otherwise AI will generate one."
+                rows={4}
+              />
+            </div>
 
-              {!autoConfidence && (
-                <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
-                  <div className="flex items-start gap-2">
-                    <Info className="h-4 w-4 mt-0.5 shrink-0" />
-                    <div>
-                      <p className="font-medium">Confidence Level Guide</p>
-                      <ul className="mt-1 space-y-0.5">
-                        <li><strong>Low (20%):</strong> Unverified source, anonymous claims, high bias</li>
-                        <li><strong>Medium (50%):</strong> Some corroboration, secondary source, mixed</li>
-                        <li><strong>High (70%):</strong> Reputable source, specific data, consistent</li>
-                        <li><strong>Very High (90%):</strong> Official document, primary source, auditable</li>
-                      </ul>
-                      <p className="mt-1">When Auto is enabled, the AI analyzes the source text and assigns a confidence score based on source authority, data specificity, internal consistency, and corroboration potential.</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {error && <p className="text-sm text-destructive">{error}</p>}
-
-              <div className="flex justify-end gap-2">
-                <Link href="/evidence">
-                  <Button type="button" variant="outline">Cancel</Button>
-                </Link>
-                <Button type="submit" disabled={loading}>
-                  {loading ? <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Processing...</> : "Add Evidence"}
-                </Button>
-              </div>
-            </form>
+            <div className="space-y-2">
+              <Label htmlFor="tags">Tags (comma-separated)</Label>
+              <Input
+                id="tags"
+                value={formData.tags}
+                onChange={e => setFormData({ ...formData, tags: e.target.value })}
+                placeholder="mining, DRC, cobalt, contract"
+              />
+            </div>
           </CardContent>
         </Card>
-      </div>
-    </AppShell>
+
+        <div className="flex gap-4">
+          <Button type="submit" disabled={loading} className="flex-1">
+            {loading ? "Uploading..." : "Upload Evidence"}
+          </Button>
+          <Button type="button" variant="outline" onClick={() => router.push("/evidence")} disabled={loading}>
+            Cancel
+          </Button>
+        </div>
+      </form>
+
+      <AIProgressModal
+        jobId={jobId}
+        open={modalOpen}
+        onClose={() => {
+          setModalOpen(false)
+          setLoading(false)
+        }}
+        onComplete={handleComplete}
+      />
+    </div>
   )
 }

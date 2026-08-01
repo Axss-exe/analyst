@@ -1,4 +1,5 @@
 import { generateWithAI } from "./client"
+import { estimateTokens } from "./token-counter"
 
 export interface ExtractedTopics {
   topics: string[]
@@ -9,11 +10,20 @@ export interface ExtractedTopics {
   sector: string[]
 }
 
+/**
+ * Extracts topics from a SAMPLE of the text (first 8,000 tokens).
+ * For 600-page docs, we don't need to process every page to get the themes.
+ */
 export async function extractTopicsFromText(text: string): Promise<ExtractedTopics> {
+  // Sample: first 30,000 chars ≈ 8,500 tokens — well within context window
+  const sample = text.slice(0, 30000)
+  const tokens = estimateTokens(sample)
+  console.log(`[topics] Processing sample of ${tokens} tokens`)
+
   const prompt = `Analyze the following intelligence evidence and extract its thematic structure.
 
-Text (first 4000 chars):
-${text.slice(0, 4000)}
+Text (representative sample, first portion):
+${sample}
 
 Respond in this exact JSON format:
 {

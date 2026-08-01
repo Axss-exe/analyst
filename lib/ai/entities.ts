@@ -1,12 +1,17 @@
 import { generateWithAI } from "./client"
+import { estimateTokens } from "./token-counter"
 
 export async function extractEntitiesFromText(text: string): Promise<
   Array<{ name: string; type: string; aliases: string[] }>
 > {
+  // Sample first 25,000 chars ≈ 7,000 tokens
+  const sample = text.slice(0, 25000)
+  console.log(`[entities] Processing sample of ${estimateTokens(sample)} tokens`)
+
   const prompt = `Extract named entities from the following text. Identify people, organizations, companies, governments, projects, locations, minerals, legislation, banks, investors, mines, and infrastructure.
 
 Text:
-${text.slice(0, 4000)}
+${sample}
 
 Respond in this JSON format only:
 [
@@ -36,10 +41,12 @@ Only output valid JSON array.`
 export async function extractTimelineEvents(text: string): Promise<
   Array<{ date: string; title: string; description: string }>
 > {
+  const sample = text.slice(0, 25000)
+
   const prompt = `Extract timeline events with dates from the following text.
 
 Text:
-${text.slice(0, 4000)}
+${sample}
 
 Respond in this JSON format only:
 [

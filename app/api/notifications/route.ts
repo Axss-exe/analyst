@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/db/client"
 import { notifications } from "@/db/schema"
-import { eq, desc, sql } from "drizzle-orm"
+import { eq, desc, and, sql } from "drizzle-orm"
 import { requireAuth } from "@/lib/auth"
 
 export async function GET(request: NextRequest) {
@@ -16,8 +16,10 @@ export async function GET(request: NextRequest) {
 
     const unreadCount = db.select({ count: sql`count(*)` })
       .from(notifications)
-      .where(eq(notifications.userId, user.id))
-      .where(eq(notifications.isRead, false))
+      .where(and(
+        eq(notifications.userId, user.id),
+        eq(notifications.isRead, false)
+      ))
       .get()
 
     return NextResponse.json({ notifications: items, unreadCount: unreadCount?.count || 0 })

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { db } from "@/db/client"
 import { notifications } from "@/db/schema"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { requireAuth } from "@/lib/auth"
 
 export async function POST() {
@@ -9,7 +9,7 @@ export async function POST() {
     const user = await requireAuth()
 
     db.update(notifications)
-      .set({ isRead: true })
+      .set({ isRead: true, readAt: sql`CURRENT_TIMESTAMP` })
       .where(eq(notifications.userId, user.id))
       .run()
 

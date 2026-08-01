@@ -30,13 +30,6 @@ function getEvidenceEntities(ev: any): string[] {
   } catch { return [] }
 }
 
-function getEvidenceThemes(ev: any): string[] {
-  try {
-    const meta = ev.aiMetadata ? JSON.parse(ev.aiMetadata) : {}
-    return meta.topics?.themes || []
-  } catch { return [] }
-}
-
 export async function GET(request: NextRequest) {
   try {
     const user = await requireAuth()
@@ -53,7 +46,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ clusters: [], unlinkedCount: unlinked.length })
     }
 
-    // Phase 1: Entity-based clustering
     const clusters: EvidenceWithMeta[][] = []
     const assigned = new Set<number>()
 
@@ -61,7 +53,6 @@ export async function GET(request: NextRequest) {
       if (assigned.has(ev.id)) continue
       const evEntities = getEvidenceEntities(ev)
       const evTopics = getEvidenceTopics(ev)
-
       if (evEntities.length === 0 && evTopics.length === 0) continue
 
       const cluster: EvidenceWithMeta[] = [{
@@ -80,7 +71,6 @@ export async function GET(request: NextRequest) {
         if (other.id === ev.id || assigned.has(other.id)) continue
         const otherEntities = getEvidenceEntities(other)
         const otherTopics = getEvidenceTopics(other)
-
         const sharedEntities = evEntities.filter(e => otherEntities.includes(e))
         const sharedTopics = evTopics.filter(t => otherTopics.includes(t))
 
@@ -106,10 +96,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Phase 2: Topic-based clustering for remaining
     const remaining = unlinked.filter(e => !assigned.has(e.id))
     const topicGroups: Map<string, EvidenceWithMeta[]> = new Map()
-
     for (const ev of remaining) {
       const topics = getEvidenceTopics(ev)
       const entities = getEvidenceEntities(ev)
@@ -117,14 +105,9 @@ export async function GET(request: NextRequest) {
         const key = topic.toLowerCase()
         if (!topicGroups.has(key)) topicGroups.set(key, [])
         topicGroups.get(key)!.push({
-          id: ev.id,
-          title: ev.title,
-          summary: ev.summary,
-          sourceType: ev.sourceType,
-          createdAt: ev.createdAt,
-          topics,
-          entities,
-          aiMetadata: ev.aiMetadata,
+          id: ev.id, title: ev.title, summary: ev.summary,
+          sourceType: ev.sourceType, createdAt: ev.createdAt,
+          topics, entities, aiMetadata: ev.aiMetadata,
         })
       }
     }
@@ -132,11 +115,7 @@ export async function GET(request: NextRequest) {
     for (const [topic, group] of topicGroups) {
       if (group.length >= minClusterSize) {
         const seen = new Set<number>()
-        const deduped = group.filter(g => {
-          if (seen.has(g.id)) return false
-          seen.add(g.id)
-          return true
-        })
+        const deduped = group.filter(g => { if (seen.has(g.id)) return false; seen.add(g.id); return true })
         if (deduped.length >= minClusterSize) {
           clusters.push(deduped)
           deduped.forEach(d => assigned.add(d.id))
@@ -145,8 +124,6 @@ export async function GET(request: NextRequest) {
     }
 
     const finalClusters = clusters.slice(0, maxClusters)
-
-    // Phase 3: AI-enhanced story proposals
     const proposals = []
     for (const cluster of finalClusters) {
       try {
@@ -162,13 +139,10 @@ export async function GET(request: NextRequest) {
           },
         })
       } catch (e) {
-        console.error("Story proposal failed for cluster:", e)
+        console.error("Story proposal failed:", e)
         const allTopics = new Set<string>()
         const allEntities = new Set<string>()
-        cluster.forEach(c => {
-          c.topics.forEach((t: string) => allTopics.add(t))
-          c.entities.forEach((e: string) => allEntities.add(e))
-        })
+        cluster.forEach(c => { c.topics.forEach((t: string) => allTopics.add(t)); c.entities.forEach((e: string) => allEntities.add(e)) })
         proposals.push({
           title: `Story: ${cluster[0].title.slice(0, 40)}...`,
           overview: `A collection of ${cluster.length} related evidence items.`,
@@ -180,11 +154,7 @@ export async function GET(request: NextRequest) {
           reasoning: "Grouped by shared topics and entities.",
           evidenceCount: cluster.length,
           evidenceItems: cluster.map(c => ({ id: c.id, title: c.title, summary: c.summary })),
-          connectionSignals: {
-            sharedTopics: [...allTopics],
-            sharedEntities: [...allEntities],
-            sharedThemes: [],
-          },
+          connectionSignals: { sharedTopics: [...allTopics], sharedEntities: [...allEntities], sharedThemes: [] },
         })
       }
     }

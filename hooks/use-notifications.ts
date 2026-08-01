@@ -13,27 +13,44 @@ export interface NotificationItem {
   createdAt: string
 }
 
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+const fetcher = async (url: string) => {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
 
 export function useNotifications() {
-  const { data, mutate } = useSWR("/api/notifications", fetcher, {
-    refreshInterval: 60000,   // 1 minute (was 30s)
+  const { data, mutate, error } = useSWR("/api/notifications", fetcher, {
+    refreshInterval: 60000,
     revalidateOnFocus: true,
     dedupingInterval: 30000,
+    shouldRetryOnError: false,
   })
 
   const notifications = data?.notifications || []
   const unreadCount = data?.unreadCount || 0
 
   const markRead = async (id: number) => {
-    await fetch(`/api/notifications/${id}/read`, { method: "POST" })
-    mutate()
+    try {
+      await fetch(`/api/notifications/${id}/read`, { method: "POST" })
+      mutate()
+    } catch (e) {
+      console.warn("markRead failed:", e)
+    }
   }
 
   const markAllRead = async () => {
-    await fetch("/api/notifications/read-all", { method: "POST" })
-    mutate()
+    try {
+      const res = await fetch("/api/notifications/read-all", { method: "POST" })
+      if (!res.ok) {
+        console.warn("markAllRead returned", res.status)
+        return
+      }
+      mutate()
+    } catch (e) {
+      console.warn("markAllRead failed:", e)
+    }
   }
 
-  return { notifications, unreadCount, loading: !data, markRead, markAllRead, refresh: () => mutate() }
+  return { notifications, unreadCount, loading: !data && !error, error, markRead, markAllRead, refresh: () => mutate() }
 }

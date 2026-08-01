@@ -1,16 +1,21 @@
 import { generateWithAI } from "./client"
+import { estimateTokens } from "./token-counter"
 
 export async function evaluateSourceConfidence(
   text: string,
   sourceType: string,
   source: string
 ): Promise<{ score: number; reasoning: string; factors: string[] }> {
+  // Sample first 10,000 chars for confidence eval
+  const sample = text.slice(0, 10000)
+  console.log(`[confidence] Processing sample of ${estimateTokens(sample)} tokens`)
+
   const prompt = `Evaluate the reliability and confidence level of the following intelligence source.
 
 Source Type: ${sourceType}
 Source: ${source}
-Text Sample (first 3000 chars):
-${text.slice(0, 3000)}
+Text Sample:
+${sample}
 
 Analyze the following factors and respond in this exact JSON format:
 {

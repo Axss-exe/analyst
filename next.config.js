@@ -16,14 +16,6 @@ const nextConfig = {
       "date-fns",
     ],
   },
-  webpack: (config, { dev, isServer }) => {
-    if (dev && isServer) {
-      config.optimization = {
-        ...config.optimization,
-        minimize: false,
-      }
-    }
-    return config
-  },
+  // NOTE: No webpack() config — it conflicts with Turbopack.
 }
 module.exports = nextConfig
