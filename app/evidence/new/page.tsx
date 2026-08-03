@@ -1,23 +1,29 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
-import { AIProgressModal } from "@/components/ai-progress-modal"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { AlertCircle, Upload, Sparkles, Calendar } from "lucide-react"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { AIProgressModal } from "@/components/ai-progress-modal";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AlertCircle, Upload, Sparkles, Calendar } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function NewEvidencePage() {
-  const router = useRouter()
-  const [loading, setLoading] = useState(false)
-  const [jobId, setJobId] = useState<string | null>(null)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     title: "",
     source: "",
@@ -28,13 +34,13 @@ export default function NewEvidencePage() {
     tags: "",
     confidence: "",
     autoConfidence: true,
-  })
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
-    setModalOpen(true)
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setModalOpen(true);
 
     try {
       const res = await fetch("/api/evidence", {
@@ -47,37 +53,41 @@ export default function NewEvidencePage() {
           publicationDate: formData.publicationDate || undefined,
           content: formData.content,
           summary: formData.summary || undefined,
-          tags: formData.tags ? formData.tags.split(",").map(t => t.trim()) : [],
-          confidence: formData.confidence ? parseFloat(formData.confidence) : undefined,
+          tags: formData.tags
+            ? formData.tags.split(",").map((t) => t.trim())
+            : [],
+          confidence: formData.confidence
+            ? parseFloat(formData.confidence)
+            : undefined,
           autoConfidence: formData.autoConfidence,
         }),
-      })
+      });
 
-      const data = await res.json()
+      const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || "Failed to create evidence")
+        throw new Error(data.error || "Failed to create evidence");
       }
 
-      setJobId(data.jobId)
-      console.log("Evidence saved, job:", data.jobId)
+      setJobId(data.jobId);
+      console.log("Evidence saved, job:", data.jobId);
     } catch (err: any) {
-      setError(err.message)
-      setModalOpen(false)
-      setLoading(false)
+      setError(err.message);
+      setModalOpen(false);
+      setLoading(false);
     }
-  }
+  };
 
   const handleComplete = () => {
-    setModalOpen(false)
-    setLoading(false)
-    router.push("/evidence")
-    router.refresh()
-  }
+    setModalOpen(false);
+    setLoading(false);
+    router.push("/evidence");
+    router.refresh();
+  };
 
-  const wordCount = formData.content.trim().split(/\s+/).filter(Boolean).length
-  const pageEstimate = Math.ceil(wordCount / 500)
-  const tokenEstimate = Math.ceil(wordCount * 1.4)
+  const wordCount = formData.content.trim().split(/\s+/).filter(Boolean).length;
+  const pageEstimate = Math.ceil(wordCount / 500);
+  const tokenEstimate = Math.ceil(wordCount * 1.4);
 
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-6">
@@ -85,7 +95,9 @@ export default function NewEvidencePage() {
         <h1 className="text-2xl font-bold">Upload New Evidence</h1>
         <div className="text-sm text-muted-foreground">
           {wordCount > 0 && (
-            <span>~{pageEstimate} pages · ~{tokenEstimate.toLocaleString()} tokens</span>
+            <span>
+              ~{pageEstimate} pages · ~{tokenEstimate.toLocaleString()} tokens
+            </span>
           )}
         </div>
       </div>
@@ -111,7 +123,9 @@ export default function NewEvidencePage() {
               <Input
                 id="title"
                 value={formData.title}
-                onChange={e => setFormData({ ...formData, title: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, title: e.target.value })
+                }
                 placeholder="e.g., DRC Mining Contract Review 2024"
                 required
               />
@@ -123,7 +137,9 @@ export default function NewEvidencePage() {
                 <Input
                   id="source"
                   value={formData.source}
-                  onChange={e => setFormData({ ...formData, source: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, source: e.target.value })
+                  }
                   placeholder="e.g., Ministry of Mines"
                   required
                 />
@@ -132,13 +148,17 @@ export default function NewEvidencePage() {
                 <Label htmlFor="sourceType">Source Type *</Label>
                 <Select
                   value={formData.sourceType}
-                  onValueChange={v => setFormData({ ...formData, sourceType: v })}
+                  onValueChange={(v) =>
+                    setFormData({ ...formData, sourceType: v })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select type..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="government">Government Document</SelectItem>
+                    <SelectItem value="government">
+                      Government Document
+                    </SelectItem>
                     <SelectItem value="report">Report</SelectItem>
                     <SelectItem value="news">News Article</SelectItem>
                     <SelectItem value="website">Website</SelectItem>
@@ -153,7 +173,10 @@ export default function NewEvidencePage() {
 
             {/* NEW: Publication Date field */}
             <div className="space-y-2">
-              <Label htmlFor="publicationDate" className="flex items-center gap-2">
+              <Label
+                htmlFor="publicationDate"
+                className="flex items-center gap-2"
+              >
                 <Calendar className="w-4 h-4" />
                 Publication Date
               </Label>
@@ -161,10 +184,13 @@ export default function NewEvidencePage() {
                 id="publicationDate"
                 type="date"
                 value={formData.publicationDate}
-                onChange={e => setFormData({ ...formData, publicationDate: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, publicationDate: e.target.value })
+                }
               />
               <p className="text-xs text-muted-foreground">
-                When was this document originally published? Used for timeline extraction and sorting.
+                When was this document originally published? Used for timeline
+                extraction and sorting.
               </p>
             </div>
 
@@ -173,13 +199,16 @@ export default function NewEvidencePage() {
               <Textarea
                 id="content"
                 value={formData.content}
-                onChange={e => setFormData({ ...formData, content: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, content: e.target.value })
+                }
                 placeholder="Paste the full document text here..."
                 rows={12}
                 required
               />
               <p className="text-xs text-muted-foreground">
-                Supports documents up to 600+ pages. AI processing happens in the background with rate-limited Cerebras API calls.
+                Supports documents up to 600+ pages. AI processing happens in
+                the background with rate-limited Cerebras API calls.
               </p>
             </div>
           </CardContent>
@@ -198,17 +227,24 @@ export default function NewEvidencePage() {
                 type="checkbox"
                 id="autoConfidence"
                 checked={formData.autoConfidence}
-                onChange={e => setFormData({ ...formData, autoConfidence: e.target.checked })}
+                onChange={(e) =>
+                  setFormData({ ...formData, autoConfidence: e.target.checked })
+                }
                 className="rounded border-gray-300"
               />
-              <Label htmlFor="autoConfidence" className="font-normal cursor-pointer">
+              <Label
+                htmlFor="autoConfidence"
+                className="font-normal cursor-pointer"
+              >
                 Auto-evaluate source confidence using AI
               </Label>
             </div>
 
             {!formData.autoConfidence && (
               <div className="space-y-2">
-                <Label htmlFor="confidence">Manual Confidence (0.0 - 1.0)</Label>
+                <Label htmlFor="confidence">
+                  Manual Confidence (0.0 - 1.0)
+                </Label>
                 <Input
                   id="confidence"
                   type="number"
@@ -216,18 +252,24 @@ export default function NewEvidencePage() {
                   max={1}
                   step={0.01}
                   value={formData.confidence}
-                  onChange={e => setFormData({ ...formData, confidence: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, confidence: e.target.value })
+                  }
                   placeholder="0.75"
                 />
               </div>
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="summary">Manual Summary (optional — leave blank for AI generation)</Label>
+              <Label htmlFor="summary">
+                Manual Summary (optional — leave blank for AI generation)
+              </Label>
               <Textarea
                 id="summary"
                 value={formData.summary}
-                onChange={e => setFormData({ ...formData, summary: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, summary: e.target.value })
+                }
                 placeholder="If you already have a summary, paste it here. Otherwise AI will generate one."
                 rows={4}
               />
@@ -238,7 +280,9 @@ export default function NewEvidencePage() {
               <Input
                 id="tags"
                 value={formData.tags}
-                onChange={e => setFormData({ ...formData, tags: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, tags: e.target.value })
+                }
                 placeholder="mining, DRC, cobalt, contract"
               />
             </div>
@@ -249,7 +293,12 @@ export default function NewEvidencePage() {
           <Button type="submit" disabled={loading} className="flex-1">
             {loading ? "Uploading..." : "Upload Evidence"}
           </Button>
-          <Button type="button" variant="outline" onClick={() => router.push("/evidence")} disabled={loading}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => router.push("/evidence")}
+            disabled={loading}
+          >
             Cancel
           </Button>
         </div>
@@ -259,11 +308,11 @@ export default function NewEvidencePage() {
         jobId={jobId}
         open={modalOpen}
         onClose={() => {
-          setModalOpen(false)
-          setLoading(false)
+          setModalOpen(false);
+          setLoading(false);
         }}
         onComplete={handleComplete}
       />
     </div>
-  )
+  );
 }

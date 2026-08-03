@@ -1,1 +1,186 @@
-import { NextRequest, NextResponse } from "next/server"import { db } from "@/db/client"import { evidence, graphClusters, narratives, stories, storyEvidence } from "@/db/schema"import { eq, desc } from "drizzle-orm"import { requireAuth } from "@/lib/auth"import { proposeStoryFromEvidence } from "@/lib/ai/stories"import type { ExtractedTopics } from "@/lib/ai/topics"interface EvidenceWithMeta {  id: number  title: string  summary: string  sourceType: string  createdAt: string  topics: ExtractedTopics  entities: string[]  aiMetadata: any}function getEvidenceTopics(ev: any): string[] {  try {    const meta = ev.aiMetadata ? JSON.parse(ev.aiMetadata) : {}    return meta.topics || []  } catch { return [] }}function getEvidenceEntities(ev: any): string[] {  try {    const meta = ev.aiMetadata ? JSON.parse(ev.aiMetadata) : {}    return meta.locations ? [...meta.locations] : []  } catch { return [] }}export async function GET(request: NextRequest) {  try {    const user = await requireAuth()    const { searchParams } = new URL(request.url)    const minClusterSize = parseInt(searchParams.get("minClusterSize") || "2")    const maxClusters = parseInt(searchParams.get("maxClusters") || "10")    // Load graph clusters from the reasoning layer    const allClusters = db.select().from(graphClusters).all()    const allNarratives = db.select().from(narratives).where(eq(narratives.generationType, "auto")).all()    // Enrich clusters with narrative data if available    const enrichedClusters = allClusters      .map((cluster) => {        let evidenceIds: number[] = []        try {          evidenceIds = JSON.parse(cluster.evidenceIds)        } catch { /* ignore */ }        let entityIds: number[] = []        try {          entityIds = JSON.parse(cluster.entityIds)        } catch { /* ignore */ }        // Find matching narrative        const narrative = allNarratives.find((n) => {          try {            const nClusterIds = JSON.parse(n.clusterIds)            return nClusterIds.includes(cluster.id)          } catch { return false }        })        return {          id: cluster.id,          name: cluster.name,          description: cluster.description,          density: cluster.density,          status: cluster.status,          evidenceCount: evidenceIds.length,          entityCount: entityIds.length,          evidenceIds,          entityIds,          narrative: narrative            ? {                title: narrative.title,                overview: narrative.overview,                confidence: narrative.confidence,              }            : null,        }      })      .filter((c) => c.evidenceCount >= minClusterSize)      .sort((a, b) => b.density - a.density)      .slice(0, maxClusters)    // Count unclustered evidence    const allEvidence = db.select().from(evidence).all()    const clusteredIds = new Set(allClusters.flatMap((c) => {      try { return JSON.parse(c.evidenceIds) } catch { return [] }    }))    const unlinked = allEvidence.filter((e) => !clusteredIds.has(e.id))    return NextResponse.json({      clusters: enrichedClusters,      unlinkedCount: unlinked.length,      clusteredCount: clusteredIds.size,      totalNarratives: allNarratives.length,    })  } catch (error: any) {    if (error.message === "Unauthorized") {      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })    }    console.error("Discovery error:", error)    return NextResponse.json({ error: "Failed to discover stories" }, { status: 500 })  }}export async function POST(request: NextRequest) {  try {    const user = await requireAuth()    const body = await request.json()    const { title, overview, evidenceIds } = body    if (!title || !overview || !evidenceIds || evidenceIds.length === 0) {      return NextResponse.json({ error: "Title, overview, and evidence IDs required" }, { status: 400 })    }    const story = db.insert(stories).values({      title,      overview,      status: "active",      createdBy: user.id,    }).returning().get()    for (const evidenceId of evidenceIds) {      db.insert(storyEvidence).values({        storyId: story.id,        evidenceId,        confidence: 0.7,        relationshipType: "discovered",      }).run()    }    return NextResponse.json({ story, linkedEvidence: evidenceIds.length })  } catch (error: any) {    if (error.message === "Unauthorized") {      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })    }    console.error("Discovery create error:", error)    return NextResponse.json({ error: "Failed to create discovered story" }, { status: 500 })  }}
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/db/client";
+import {
+  evidence,
+  graphClusters,
+  narratives,
+  stories,
+  storyEvidence,
+} from "@/db/schema";
+import { eq, desc } from "drizzle-orm";
+import { requireAuth } from "@/lib/auth";
+import { proposeStoryFromEvidence } from "@/lib/ai/stories";
+import type { ExtractedTopics } from "@/lib/ai/topics";
+
+interface EvidenceWithMeta {
+  id: number;
+  title: string;
+  summary: string;
+  sourceType: string;
+  createdAt: string;
+  topics: ExtractedTopics;
+  entities: string[];
+  aiMetadata: any;
+}
+
+function getEvidenceTopics(ev: any): string[] {
+  try {
+    const meta = ev.aiMetadata ? JSON.parse(ev.aiMetadata) : {};
+    return meta.topics || [];
+  } catch {
+    return [];
+  }
+}
+
+function getEvidenceEntities(ev: any): string[] {
+  try {
+    const meta = ev.aiMetadata ? JSON.parse(ev.aiMetadata) : {};
+    return meta.locations ? [...meta.locations] : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const user = await requireAuth();
+    const { searchParams } = new URL(request.url);
+    const minClusterSize = parseInt(searchParams.get("minClusterSize") || "2");
+    const maxClusters = parseInt(searchParams.get("maxClusters") || "10");
+
+    // Load graph clusters from the reasoning layer
+    const allClusters = db.select().from(graphClusters).all();
+    const allNarratives = db
+      .select()
+      .from(narratives)
+      .where(eq(narratives.generationType, "auto"))
+      .all();
+
+    // Enrich clusters with narrative data if available
+    const enrichedClusters = allClusters
+      .map((cluster) => {
+        let evidenceIds: number[] = [];
+        try {
+          evidenceIds = JSON.parse(cluster.evidenceIds);
+        } catch {
+          /* ignore */
+        }
+
+        let entityIds: number[] = [];
+        try {
+          entityIds = JSON.parse(cluster.entityIds);
+        } catch {
+          /* ignore */
+        }
+
+        // Find matching narrative
+        const narrative = allNarratives.find((n) => {
+          try {
+            const nClusterIds = JSON.parse(n.clusterIds);
+            return nClusterIds.includes(cluster.id);
+          } catch {
+            return false;
+          }
+        });
+
+        return {
+          id: cluster.id,
+          name: cluster.name,
+          description: cluster.description,
+          density: cluster.density,
+          status: cluster.status,
+          evidenceCount: evidenceIds.length,
+          entityCount: entityIds.length,
+          evidenceIds,
+          entityIds,
+          narrative: narrative
+            ? {
+                title: narrative.title,
+                overview: narrative.overview,
+                confidence: narrative.confidence,
+              }
+            : null,
+        };
+      })
+      .filter((c) => c.evidenceCount >= minClusterSize)
+      .sort((a, b) => b.density - a.density)
+      .slice(0, maxClusters);
+
+    // Count unclustered evidence
+    const allEvidence = db.select().from(evidence).all();
+    const clusteredIds = new Set(
+      allClusters.flatMap((c) => {
+        try {
+          return JSON.parse(c.evidenceIds);
+        } catch {
+          return [];
+        }
+      }),
+    );
+    const unlinked = allEvidence.filter((e) => !clusteredIds.has(e.id));
+
+    return NextResponse.json({
+      clusters: enrichedClusters,
+      unlinkedCount: unlinked.length,
+      clusteredCount: clusteredIds.size,
+      totalNarratives: allNarratives.length,
+    });
+  } catch (error: any) {
+    if (error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    console.error("Discovery error:", error);
+    return NextResponse.json(
+      { error: "Failed to discover stories" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const user = await requireAuth();
+    const body = await request.json();
+    const { title, overview, evidenceIds } = body;
+
+    if (!title || !overview || !evidenceIds || evidenceIds.length === 0) {
+      return NextResponse.json(
+        { error: "Title, overview, and evidence IDs required" },
+        { status: 400 },
+      );
+    }
+
+    const story = db
+      .insert(stories)
+      .values({
+        title,
+        overview,
+        status: "active",
+        createdBy: user.id,
+      })
+      .returning()
+      .get();
+
+    for (const evidenceId of evidenceIds) {
+      db.insert(storyEvidence)
+        .values({
+          storyId: story.id,
+          evidenceId,
+          confidence: 0.7,
+          relationshipType: "discovered",
+        })
+        .run();
+    }
+
+    return NextResponse.json({ story, linkedEvidence: evidenceIds.length });
+  } catch (error: any) {
+    if (error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    console.error("Discovery create error:", error);
+    return NextResponse.json(
+      { error: "Failed to create discovered story" },
+      { status: 500 },
+    );
+  }
+}

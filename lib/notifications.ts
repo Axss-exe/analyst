@@ -1,13 +1,13 @@
-import { db } from "@/db/client"
-import { notifications } from "@/db/schema"
+import { db } from "@/db/client";
+import { notifications } from "@/db/schema";
 
 export async function createNotification(params: {
-  userId: number
-  type: string
-  title: string
-  message: string
-  relatedObjectType?: string
-  relatedObjectId?: number
+  userId: number;
+  type: string;
+  title: string;
+  message: string;
+  relatedObjectType?: string;
+  relatedObjectId?: number;
 }) {
   await db.insert(notifications).values({
     userId: params.userId,
@@ -16,12 +16,21 @@ export async function createNotification(params: {
     message: params.message,
     relatedObjectType: params.relatedObjectType,
     relatedObjectId: params.relatedObjectId,
-  })
+  });
 }
 
-export async function notifyStoryUpdate(storyId: number, storyTitle: string, updaterId: number) {
-  const allUsers = db.select({ id: notifications.userId }).from(notifications).all()
-  const uniqueUsers = [...new Set(allUsers.map(u => u.id))].filter(id => id !== updaterId)
+export async function notifyStoryUpdate(
+  storyId: number,
+  storyTitle: string,
+  updaterId: number,
+) {
+  const allUsers = db
+    .select({ id: notifications.userId })
+    .from(notifications)
+    .all();
+  const uniqueUsers = [...new Set(allUsers.map((u) => u.id))].filter(
+    (id) => id !== updaterId,
+  );
 
   for (const userId of uniqueUsers) {
     await createNotification({
@@ -31,13 +40,24 @@ export async function notifyStoryUpdate(storyId: number, storyTitle: string, upd
       message: `Story "${storyTitle}" has been updated.`,
       relatedObjectType: "story",
       relatedObjectId: storyId,
-    })
+    });
   }
 }
 
-export async function notifyEvidenceLinked(evidenceId: number, evidenceTitle: string, storyId: number, storyTitle: string, actorId: number) {
-  const allUsers = db.select({ id: notifications.userId }).from(notifications).all()
-  const uniqueUsers = [...new Set(allUsers.map(u => u.id))].filter(id => id !== actorId)
+export async function notifyEvidenceLinked(
+  evidenceId: number,
+  evidenceTitle: string,
+  storyId: number,
+  storyTitle: string,
+  actorId: number,
+) {
+  const allUsers = db
+    .select({ id: notifications.userId })
+    .from(notifications)
+    .all();
+  const uniqueUsers = [...new Set(allUsers.map((u) => u.id))].filter(
+    (id) => id !== actorId,
+  );
 
   for (const userId of uniqueUsers) {
     await createNotification({
@@ -47,13 +67,24 @@ export async function notifyEvidenceLinked(evidenceId: number, evidenceTitle: st
       message: `"${evidenceTitle}" was linked to "${storyTitle}".`,
       relatedObjectType: "story",
       relatedObjectId: storyId,
-    })
+    });
   }
 }
 
-export async function notifyBriefGenerated(briefId: number, headline: string, storyId: number, storyTitle: string, actorId: number) {
-  const allUsers = db.select({ id: notifications.userId }).from(notifications).all()
-  const uniqueUsers = [...new Set(allUsers.map(u => u.id))].filter(id => id !== actorId)
+export async function notifyBriefGenerated(
+  briefId: number,
+  headline: string,
+  storyId: number,
+  storyTitle: string,
+  actorId: number,
+) {
+  const allUsers = db
+    .select({ id: notifications.userId })
+    .from(notifications)
+    .all();
+  const uniqueUsers = [...new Set(allUsers.map((u) => u.id))].filter(
+    (id) => id !== actorId,
+  );
 
   for (const userId of uniqueUsers) {
     await createNotification({
@@ -63,11 +94,16 @@ export async function notifyBriefGenerated(briefId: number, headline: string, st
       message: `New brief "${headline}" generated for "${storyTitle}".`,
       relatedObjectType: "brief",
       relatedObjectId: briefId,
-    })
+    });
   }
 }
 
-export async function notifyTaskAssigned(taskId: number, objective: string, ownerId: number, assignerId: number) {
+export async function notifyTaskAssigned(
+  taskId: number,
+  objective: string,
+  ownerId: number,
+  assignerId: number,
+) {
   await createNotification({
     userId: ownerId,
     type: "task_assigned",
@@ -75,12 +111,22 @@ export async function notifyTaskAssigned(taskId: number, objective: string, owne
     message: `You have been assigned: "${objective}"`,
     relatedObjectType: "task",
     relatedObjectId: taskId,
-  })
+  });
 }
 
-export async function notifyTaskCompleted(taskId: number, objective: string, ownerId: number, completerId: number) {
-  const allUsers = db.select({ id: notifications.userId }).from(notifications).all()
-  const uniqueUsers = [...new Set(allUsers.map(u => u.id))].filter(id => id !== completerId)
+export async function notifyTaskCompleted(
+  taskId: number,
+  objective: string,
+  ownerId: number,
+  completerId: number,
+) {
+  const allUsers = db
+    .select({ id: notifications.userId })
+    .from(notifications)
+    .all();
+  const uniqueUsers = [...new Set(allUsers.map((u) => u.id))].filter(
+    (id) => id !== completerId,
+  );
 
   for (const userId of uniqueUsers) {
     await createNotification({
@@ -90,6 +136,6 @@ export async function notifyTaskCompleted(taskId: number, objective: string, own
       message: `"${objective}" has been completed.`,
       relatedObjectType: "task",
       relatedObjectId: taskId,
-    })
+    });
   }
 }

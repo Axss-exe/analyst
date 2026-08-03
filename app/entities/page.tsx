@@ -1,24 +1,29 @@
-"use client"
+"use client";
 
-import { useEffect, useState } from "react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { AppShell } from "@/components/app-shell"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { Card, CardContent } from "@/components/ui/card"
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { AppShell } from "@/components/app-shell";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table"
-import { Plus, Search, Users, ArrowRight } from "lucide-react"
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Plus, Search, Users, ArrowRight } from "lucide-react";
 
 interface EntityItem {
-  id: number
-  name: string
-  type: string
-  aliases: string
-  createdAt: string
+  id: number;
+  name: string;
+  type: string;
+  aliases: string;
+  createdAt: string;
 }
 
 const typeColors: Record<string, string> = {
@@ -34,25 +39,32 @@ const typeColors: Record<string, string> = {
   investor: "bg-pink-500/20 text-pink-400",
   mine: "bg-stone-500/20 text-stone-400",
   infrastructure: "bg-teal-500/20 text-teal-400",
-}
+};
 
 export default function EntitiesPage() {
-  const [entities, setEntities] = useState<EntityItem[]>([])
-  const [search, setSearch] = useState("")
-  const [loading, setLoading] = useState(true)
-  const router = useRouter()
+  const [entities, setEntities] = useState<EntityItem[]>([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
-  useEffect(() => { fetchEntities() }, [])
+  useEffect(() => {
+    fetchEntities();
+  }, []);
 
   const fetchEntities = async (q = "") => {
-    setLoading(true)
-    const res = await fetch(`/api/entities?search=${encodeURIComponent(q)}&limit=500`)
-    const data = await res.json()
-    setEntities(data.entities || [])
-    setLoading(false)
-  }
+    setLoading(true);
+    const res = await fetch(
+      `/api/entities?search=${encodeURIComponent(q)}&limit=500`,
+    );
+    const data = await res.json();
+    setEntities(data.entities || []);
+    setLoading(false);
+  };
 
-  const handleSearch = (e: React.FormEvent) => { e.preventDefault(); fetchEntities(search) }
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    fetchEntities(search);
+  };
 
   return (
     <AppShell>
@@ -60,39 +72,76 @@ export default function EntitiesPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Entities</h1>
-            <p className="text-sm text-muted-foreground">People, organizations, locations, and more</p>
+            <p className="text-sm text-muted-foreground">
+              People, organizations, locations, and more
+            </p>
           </div>
           <Link href="/entities/new">
-            <Button><Plus className="mr-1 h-4 w-4" /> New Entity</Button>
+            <Button>
+              <Plus className="mr-1 h-4 w-4" /> New Entity
+            </Button>
           </Link>
         </div>
 
         <form onSubmit={handleSearch} className="flex gap-2">
-          <Input placeholder="Search entities..." value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-md" />
-          <Button type="submit" variant="outline" size="icon"><Search className="h-4 w-4" /></Button>
+          <Input
+            placeholder="Search entities..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="max-w-md"
+          />
+          <Button type="submit" variant="outline" size="icon">
+            <Search className="h-4 w-4" />
+          </Button>
         </form>
 
         {loading ? (
-          <div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>
+          <div className="flex h-64 items-center justify-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          </div>
         ) : entities.length === 0 ? (
-          <Card><CardContent className="flex flex-col items-center justify-center py-12">
-            <Users className="h-12 w-12 text-muted-foreground opacity-40" />
-            <p className="mt-4 text-muted-foreground">No entities yet</p>
-          </CardContent></Card>
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-12">
+              <Users className="h-12 w-12 text-muted-foreground opacity-40" />
+              <p className="mt-4 text-muted-foreground">No entities yet</p>
+            </CardContent>
+          </Card>
         ) : (
           <div className="rounded-md border">
             <Table>
               <TableHeader>
-                <TableRow><TableHead>Name</TableHead><TableHead>Type</TableHead><TableHead>Aliases</TableHead><TableHead>Created</TableHead><TableHead className="w-[60px]"></TableHead></TableRow>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Aliases</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead className="w-[60px]"></TableHead>
+                </TableRow>
               </TableHeader>
               <TableBody>
                 {entities.map((ent) => (
-                  <TableRow key={ent.id} className="cursor-pointer" onClick={() => router.push(`/entities/${ent.id}`)}>
+                  <TableRow
+                    key={ent.id}
+                    className="cursor-pointer"
+                    onClick={() => router.push(`/entities/${ent.id}`)}
+                  >
                     <TableCell className="font-medium">{ent.name}</TableCell>
-                    <TableCell><Badge className={`capitalize ${typeColors[ent.type] || "bg-muted text-muted-foreground"}`}>{ent.type}</Badge></TableCell>
-                    <TableCell className="text-xs text-muted-foreground max-w-xs truncate">{ent.aliases}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{new Date(ent.createdAt).toLocaleDateString()}</TableCell>
-                    <TableCell><ArrowRight className="h-4 w-4 text-muted-foreground" /></TableCell>
+                    <TableCell>
+                      <Badge
+                        className={`capitalize ${typeColors[ent.type] || "bg-muted text-muted-foreground"}`}
+                      >
+                        {ent.type}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground max-w-xs truncate">
+                      {ent.aliases}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {new Date(ent.createdAt).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell>
+                      <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -101,5 +150,5 @@ export default function EntitiesPage() {
         )}
       </div>
     </AppShell>
-  )
+  );
 }

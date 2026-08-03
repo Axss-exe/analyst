@@ -1,1 +1,282 @@
-export type UserRole = "admin" | "analyst"export interface User {  id: number  email: string  name: string  role: UserRole  isBlocked: boolean  createdAt: string}export interface Evidence {  id: number  title: string  summary: string  source: string  sourceType: string  publicationDate: string | null  collectionDate: string  confidence: number  tags: string  aiMetadata: string | null  createdBy: number  createdAt: string}export interface Story {  id: number  title: string  overview: string  status: "active" | "archived" | "closed"  createdBy: number  createdAt: string  updatedAt: string}export interface Entity {  id: number  name: string  type: string  aliases: string  metadata: string | null  createdBy: number  createdAt: string}export interface Relationship {  id: number  sourceId: number  targetId: number  type: string  confidence: number  evidenceIds: string  createdBy: number  createdAt: string}export interface TimelineEvent {  id: number  date: string  title: string  description: string  evidenceId: number | null  storyId: number | null  entityIds: string  createdBy: number  createdAt: string}export interface ResearchTask {  id: number  objective: string  priority: "low" | "medium" | "high" | "critical"  ownerId: number  deadline: string | null  status: "open" | "in_progress" | "completed" | "cancelled"  completionNotes: string | null  createdBy: number  createdAt: string}export interface GeneratedBrief {  id: number  storyId: number  headline: string  content: string  version: number  generationMode: "full" | "partial" | "since_last"  evidenceIds: string  templateId: number  promptVersion: string  llmModel: string  createdBy: number  createdAt: string}export interface Template {  id: number  name: string  type: string  config: string  createdBy: number  createdAt: string}export interface Notification {  id: number  userId: number  type: string  title: string  message: string  relatedObjectType: string | null  relatedObjectId: number | null  isRead: boolean  createdAt: string}export interface AuditLog {  id: number  userId: number  action: string  targetType: string  targetId: number  previousValue: string | null  newValue: string | null  createdAt: string}// ==================== ATIS v3: Graph-First Types ====================export interface ExtractedEntity {  name: string  type: string  aliases: string[]}export interface ExtractedEvent {  date: string  title: string  description: string  entityNames: string[]}export interface ExtractedRelationship {  source: string  target: string  type: string  description: string}export interface ExtractedClaim {  claim: string  subject: string  confidence: number}export interface ExtractedNumber {  value: string  unit: string  context: string}export interface ExtractedEconomicIndicator {  indicator: string  value: string  period: string}export interface CauseEffectPair {  cause: string  effect: string}export interface StructuredExtraction {  entities: ExtractedEntity[]  events: ExtractedEvent[]  relationships: ExtractedRelationship[]  dates: string[]  locations: string[]  legislation: string[]  people: string[]  organizations: string[]  topics: string[]  claims: ExtractedClaim[]  numbers: ExtractedNumber[]  economicIndicators: ExtractedEconomicIndicator[]  causeEffectPairs: CauseEffectPair[]  summary: string  confidence: number}export interface Fact {  id?: number  subject: string  predicate: string  object: string  evidenceId: number  confidence: number  createdAt?: string}export interface ConnectionSignal {  evidenceIdA: number  evidenceIdB: number  signalType:    | "shared_entities"    | "shared_people"    | "shared_legislation"    | "shared_organizations"    | "shared_locations"    | "shared_events"    | "temporal_proximity"    | "cause_effect_language"    | "economic_indicator"    | "semantic_overlap"  strength: number  reason: string  metadata?: Record<string, unknown>  createdAt?: string}export interface GraphCluster {  id?: number  name: string  description: string  evidenceIds: number[]  entityIds: number[]  density: number  status: "new" | "strengthened" | "merged" | "stable"  createdAt?: string  updatedAt?: string}export interface Narrative {  id?: number  title: string  overview: string  clusterIds: number[]  evidenceIds: number[]  confidence: number  generationType: "auto" | "manual"  createdAt?: string}export interface HiddenPath {  path: number[]  bridgeEvidenceIds: number[]  explanation: string  signalTypes: string[]}export interface BridgeNode {  entityId: number  entityName: string  connectedEvidenceIds: number[]  betweennessScore: number}export interface Contradiction {  evidenceIdA: number  evidenceIdB: number  subject: string  claimA: string  claimB: string  confidence: number}export interface GraphNode {  id: string  label: string  type: string  data: Record<string, unknown>}export interface GraphEdge {  id: string  source: string  target: string  label: string  confidence: number  reason?: string}
+export type UserRole = "admin" | "analyst";
+
+export interface User {
+  id: number;
+  email: string;
+  name: string;
+  role: UserRole;
+  isBlocked: boolean;
+  createdAt: string;
+}
+
+export interface Evidence {
+  id: number;
+  title: string;
+  summary: string;
+  source: string;
+  sourceType: string;
+  publicationDate: string | null;
+  collectionDate: string;
+  confidence: number;
+  tags: string;
+  aiMetadata: string | null;
+  createdBy: number;
+  createdAt: string;
+}
+
+export interface Story {
+  id: number;
+  title: string;
+  overview: string;
+  status: "active" | "archived" | "closed";
+  createdBy: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Entity {
+  id: number;
+  name: string;
+  type: string;
+  aliases: string;
+  metadata: string | null;
+  createdBy: number;
+  createdAt: string;
+}
+
+export interface Relationship {
+  id: number;
+  sourceId: number;
+  targetId: number;
+  type: string;
+  confidence: number;
+  evidenceIds: string;
+  createdBy: number;
+  createdAt: string;
+}
+
+export interface TimelineEvent {
+  id: number;
+  date: string;
+  title: string;
+  description: string;
+  evidenceId: number | null;
+  storyId: number | null;
+  entityIds: string;
+  createdBy: number;
+  createdAt: string;
+}
+
+export interface ResearchTask {
+  id: number;
+  objective: string;
+  priority: "low" | "medium" | "high" | "critical";
+  ownerId: number;
+  deadline: string | null;
+  status: "open" | "in_progress" | "completed" | "cancelled";
+  completionNotes: string | null;
+  createdBy: number;
+  createdAt: string;
+}
+
+export interface GeneratedBrief {
+  id: number;
+  storyId: number;
+  headline: string;
+  content: string;
+  version: number;
+  generationMode: "full" | "partial" | "since_last";
+  evidenceIds: string;
+  templateId: number;
+  promptVersion: string;
+  llmModel: string;
+  createdBy: number;
+  createdAt: string;
+}
+
+export interface Template {
+  id: number;
+  name: string;
+  type: string;
+  config: string;
+  createdBy: number;
+  createdAt: string;
+}
+
+export interface Notification {
+  id: number;
+  userId: number;
+  type: string;
+  title: string;
+  message: string;
+  relatedObjectType: string | null;
+  relatedObjectId: number | null;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export interface AuditLog {
+  id: number;
+  userId: number;
+  action: string;
+  targetType: string;
+  targetId: number;
+  previousValue: string | null;
+  newValue: string | null;
+  createdAt: string;
+}
+
+// ==================== ATIS v3: Graph-First Types ====================
+
+export interface ExtractedEntity {
+  name: string;
+  type: string;
+  aliases: string[];
+}
+
+export interface ExtractedEvent {
+  date: string;
+  title: string;
+  description: string;
+  entityNames: string[];
+}
+
+export interface ExtractedRelationship {
+  source: string;
+  target: string;
+  type: string;
+  description: string;
+}
+
+export interface ExtractedClaim {
+  claim: string;
+  subject: string;
+  confidence: number;
+}
+
+export interface ExtractedNumber {
+  value: string;
+  unit: string;
+  context: string;
+}
+
+export interface ExtractedEconomicIndicator {
+  indicator: string;
+  value: string;
+  period: string;
+}
+
+export interface CauseEffectPair {
+  cause: string;
+  effect: string;
+}
+
+export interface StructuredExtraction {
+  entities: ExtractedEntity[];
+  events: ExtractedEvent[];
+  relationships: ExtractedRelationship[];
+  dates: string[];
+  locations: string[];
+  legislation: string[];
+  people: string[];
+  organizations: string[];
+  topics: string[];
+  claims: ExtractedClaim[];
+  numbers: ExtractedNumber[];
+  economicIndicators: ExtractedEconomicIndicator[];
+  causeEffectPairs: CauseEffectPair[];
+  summary: string;
+  confidence: number;
+}
+
+export interface Fact {
+  id?: number;
+  subject: string;
+  predicate: string;
+  object: string;
+  evidenceId: number;
+  confidence: number;
+  createdAt?: string;
+}
+
+export interface ConnectionSignal {
+  evidenceIdA: number;
+  evidenceIdB: number;
+  signalType:
+    | "shared_entities"
+    | "shared_people"
+    | "shared_legislation"
+    | "shared_organizations"
+    | "shared_locations"
+    | "shared_events"
+    | "temporal_proximity"
+    | "cause_effect_language"
+    | "economic_indicator"
+    | "semantic_overlap";
+  strength: number;
+  reason: string;
+  metadata?: Record<string, unknown>;
+  createdAt?: string;
+}
+
+export interface GraphCluster {
+  id?: number;
+  name: string;
+  description: string;
+  evidenceIds: number[];
+  entityIds: number[];
+  density: number;
+  status: "new" | "strengthened" | "merged" | "stable";
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Narrative {
+  id?: number;
+  title: string;
+  overview: string;
+  clusterIds: number[];
+  evidenceIds: number[];
+  confidence: number;
+  generationType: "auto" | "manual";
+  createdAt?: string;
+}
+
+export interface HiddenPath {
+  path: number[];
+  bridgeEvidenceIds: number[];
+  explanation: string;
+  signalTypes: string[];
+}
+
+export interface BridgeNode {
+  entityId: number;
+  entityName: string;
+  connectedEvidenceIds: number[];
+  betweennessScore: number;
+}
+
+export interface Contradiction {
+  evidenceIdA: number;
+  evidenceIdB: number;
+  subject: string;
+  claimA: string;
+  claimB: string;
+  confidence: number;
+}
+
+export interface GraphNode {
+  id: string;
+  label: string;
+  type: string;
+  data: Record<string, unknown>;
+}
+
+export interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  label: string;
+  confidence: number;
+  reason?: string;
+}

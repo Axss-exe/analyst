@@ -1,22 +1,26 @@
-import { NextResponse } from "next/server"
-import { db } from "@/db/client"
-import { notifications } from "@/db/schema"
-import { eq, sql } from "drizzle-orm"
-import { requireAuth } from "@/lib/auth"
+import { NextResponse } from "next/server";
+import { db } from "@/db/client";
+import { notifications } from "@/db/schema";
+import { eq, sql } from "drizzle-orm";
+import { requireAuth } from "@/lib/auth";
 
 export async function POST() {
   try {
-    const user = await requireAuth()
+    const user = await requireAuth();
 
     db.update(notifications)
       .set({ isRead: true, readAt: sql`CURRENT_TIMESTAMP` })
       .where(eq(notifications.userId, user.id))
-      .run()
+      .run();
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true });
   } catch (error: any) {
-    if (error.message === "Unauthorized") return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    console.error("Mark all read error:", error)
-    return NextResponse.json({ error: "Failed to mark all as read" }, { status: 500 })
+    if (error.message === "Unauthorized")
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    console.error("Mark all read error:", error);
+    return NextResponse.json(
+      { error: "Failed to mark all as read" },
+      { status: 500 },
+    );
   }
 }

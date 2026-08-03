@@ -1,50 +1,50 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
-import Link from "next/link"
-import { Logo } from "@/components/logo"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Eye, EyeOff, ArrowRight, Shield } from "lucide-react"
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Logo } from "@/components/logo";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Eye, EyeOff, ArrowRight, Shield } from "lucide-react";
 
 export default function RegisterPage() {
-  const router = useRouter()
-  const [name, setName] = useState("")
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [inviteCode, setInviteCode] = useState("")
-  const [showPassword, setShowPassword] = useState(false)
-  const [error, setError] = useState("")
-  const [loading, setLoading] = useState(false)
+  const router = useRouter();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError("")
-    setLoading(true)
+    e.preventDefault();
+    setError("");
+    setLoading(true);
 
     try {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, email, password, inviteCode }),
-      })
-      const data = await res.json()
+      });
+      const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || "Registration failed")
-        setLoading(false)
-        return
+        setError(data.error || "Registration failed");
+        setLoading(false);
+        return;
       }
 
-      router.push("/dashboard")
-      router.refresh()
+      router.push("/dashboard");
+      router.refresh();
     } catch {
-      setError("Network error. Please try again.")
-      setLoading(false)
+      setError("Network error. Please try again.");
+      setLoading(false);
     }
-  }
+  };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-black px-4 relative overflow-hidden">
@@ -56,13 +56,17 @@ export default function RegisterPage() {
           <div className="flex justify-center mb-6">
             <Logo size="lg" showText={false} />
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight text-white mb-1.5">Join ATIS</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-white mb-1.5">
+            Join ATIS
+          </h1>
           <p className="text-sm text-[#86868b]">Create your analyst account</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-1.5">
-            <Label htmlFor="name" className="text-sm text-[#86868b]">Full Name</Label>
+            <Label htmlFor="name" className="text-sm text-[#86868b]">
+              Full Name
+            </Label>
             <Input
               id="name"
               value={name}
@@ -74,7 +78,9 @@ export default function RegisterPage() {
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="email" className="text-sm text-[#86868b]">Email</Label>
+            <Label htmlFor="email" className="text-sm text-[#86868b]">
+              Email
+            </Label>
             <Input
               id="email"
               type="email"
@@ -87,7 +93,9 @@ export default function RegisterPage() {
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="password" className="text-sm text-[#86868b]">Password</Label>
+            <Label htmlFor="password" className="text-sm text-[#86868b]">
+              Password
+            </Label>
             <div className="relative">
               <Input
                 id="password"
@@ -103,13 +111,20 @@ export default function RegisterPage() {
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-[#86868b] hover:text-white transition-colors"
               >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                {showPassword ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
               </button>
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="invite" className="text-sm text-[#86868b] flex items-center gap-1.5">
+            <Label
+              htmlFor="invite"
+              className="text-sm text-[#86868b] flex items-center gap-1.5"
+            >
               <Shield className="h-3 w-3" /> Invitation Code
             </Label>
             <Input
@@ -145,11 +160,14 @@ export default function RegisterPage() {
 
         <p className="mt-8 text-center text-sm text-[#86868b]">
           Already have an account?{" "}
-          <Link href="/login" className="text-[#2997ff] hover:text-[#5ac8fa] transition-colors font-medium">
+          <Link
+            href="/login"
+            className="text-[#2997ff] hover:text-[#5ac8fa] transition-colors font-medium"
+          >
             Sign in
           </Link>
         </p>
       </div>
     </div>
-  )
+  );
 }

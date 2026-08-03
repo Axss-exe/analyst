@@ -1,1 +1,613 @@
-"use client"import { useEffect, useState, useCallback, useRef } from "react"import { AppShell } from "@/components/app-shell"import { Input } from "@/components/ui/input"import { Button } from "@/components/ui/button"import { Badge } from "@/components/ui/badge"import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"import { Search, ZoomIn, ZoomOut, Maximize, Network, AlertTriangle, GitBranch, Sparkles, Users } from "lucide-react"import Link from "next/link"interface GraphNode {  id: string  label: string  type: string  x: number  y: number}interface GraphEdge {  id: string  source: string  target: string  label: string  confidence: number}interface ClusterView {  id: number  name: string  description: string  density: number  status: string  evidenceCount: number  entityCount: number  evidenceIds: number[]}interface HiddenPathView {  path: number[]  bridgeEvidenceIds: number[]  explanation: string  signalTypes: string[]}interface BridgeNodeView {  entityId: number  entityName: string  connectedEvidenceIds: number[]  betweennessScore: number}interface ContradictionView {  evidenceIdA: number  evidenceIdB: number  subject: string  claimA: string  claimB: string  confidence: number}interface NarrativeView {  title: string  overview: string  clusterIds: number[]  evidenceIds: number[]  confidence: number}const typeColors: Record<string, string> = {  person: "#3b82f6", organization: "#a855f7", company: "#10b981", government: "#f59e0b",  project: "#f43f5e", location: "#06b6d4", mineral: "#64748b", legislation: "#f97316",  bank: "#6366f1", investor: "#ec4899", mine: "#78716c", infrastructure: "#14b8a6",}export default function GraphPage() {  const [nodes, setNodes] = useState<GraphNode[]>([])  const [edges, setEdges] = useState<GraphEdge[]>([])  const [search, setSearch] = useState("")  const [filter, setFilter] = useState("")  const [loading, setLoading] = useState(true)  const [scale, setScale] = useState(1)  const [pan, setPan] = useState({ x: 0, y: 0 })  const [dragging, setDragging] = useState(false)  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })  const [selectedNode, setSelectedNode] = useState<string | null>(null)  const [showReasoning, setShowReasoning] = useState(false)  const svgRef = useRef<SVGSVGElement>(null)  // Graph reasoning data  const [clusters, setClusters] = useState<ClusterView[]>([])  const [hiddenPaths, setHiddenPaths] = useState<HiddenPathView[]>([])  const [bridgeNodes, setBridgeNodes] = useState<BridgeNodeView[]>([])  const [contradictions, setContradictions] = useState<ContradictionView[]>([])  const [narratives, setNarratives] = useState<NarrativeView[]>([])  const [stats, setStats] = useState({    evidenceCount: 0, entityCount: 0, relationshipCount: 0,    connectionCount: 0, clusterCount: 0, averageClusterDensity: 0, bridgeNodeCount: 0,  })  useEffect(() => {    fetch("/api/graph")      .then((r) => r.json())      .then((d) => {        const w = 800, h = 600        const positioned = d.nodes.map((n: any, i: number) => ({          ...n,          x: w / 2 + Math.cos((i / d.nodes.length) * Math.PI * 2) * Math.min(w, h) * 0.35,          y: h / 2 + Math.sin((i / d.nodes.length) * Math.PI * 2) * Math.min(w, h) * 0.35,        }))        setNodes(positioned)        setEdges(d.edges || [])        setClusters(d.clusters || [])        setHiddenPaths(d.hiddenPaths || [])        setBridgeNodes(d.bridgeNodes || [])        setContradictions(d.contradictions || [])        setNarratives(d.narratives || [])        setStats(d.stats || {})        setLoading(false)      })      .catch(() => setLoading(false))  }, [])  const filteredNodes = nodes.filter((n) => {    if (search && !n.label.toLowerCase().includes(search.toLowerCase())) return false    if (filter && n.type !== filter) return false    return true  })  const filteredIds = new Set(filteredNodes.map((n) => n.id))  const filteredEdges = edges.filter((e) => filteredIds.has(e.source) && filteredIds.has(e.target))  const handleZoom = (delta: number) => setScale((s) => Math.max(0.2, Math.min(3, s + delta)))  const handleReset = () => { setScale(1); setPan({ x: 0, y: 0 }) }  const handleMouseDown = (e: React.MouseEvent) => {    if (e.target === svgRef.current) { setDragging(true); setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y }) }  }  const handleMouseMove = (e: React.MouseEvent) => {    if (dragging) setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y })  }  const handleMouseUp = () => setDragging(false)  const nodeTypes = [...new Set(nodes.map((n) => n.type))]  const bridgeNodeIds = new Set(bridgeNodes.map((b) => String(b.entityId)))  return (    <AppShell>      <div className="flex h-[calc(100vh-7rem)] flex-col gap-4">        <div className="flex items-center justify-between">          <div>            <h1 className="text-2xl font-semibold tracking-tight">Relationship Graph</h1>            <p className="text-sm text-muted-foreground">Explore entity connections</p>          </div>          <div className="flex items-center gap-2">            <Input placeholder="Search nodes..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-48" />            <select value={filter} onChange={(e) => setFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">              <option value="">All Types</option>              {nodeTypes.map((t) => <option key={t} value={t} className="capitalize">{t}</option>)}            </select>            <Button variant="outline" size="icon" onClick={() => handleZoom(0.2)}><ZoomIn className="h-4 w-4" /></Button>            <Button variant="outline" size="icon" onClick={() => handleZoom(-0.2)}><ZoomOut className="h-4 w-4" /></Button>            <Button variant="outline" size="icon" onClick={handleReset}><Maximize className="h-4 w-4" /></Button>            <Button variant="outline" size="sm" onClick={() => setShowReasoning(!showReasoning)}>              <Network className="h-4 w-4 mr-1" /> {showReasoning ? "Hide" : "Reasoning"}            </Button>          </div>        </div>        {loading ? (          <div className="flex flex-1 items-center justify-center">            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />          </div>        ) : (          <div className="flex flex-1 gap-4 overflow-hidden">            <Card className="relative flex-1 overflow-hidden bg-[#0d1117]">              <svg                ref={svgRef}                className="h-full w-full cursor-grab active:cursor-grabbing"                onMouseDown={handleMouseDown}                onMouseMove={handleMouseMove}                onMouseUp={handleMouseUp}                onMouseLeave={handleMouseUp}              >                <g transform={`translate(${pan.x}, ${pan.y}) scale(${scale})`}>                  {filteredEdges.map((edge) => {                    const src = filteredNodes.find((n) => n.id === edge.source)                    const tgt = filteredNodes.find((n) => n.id === edge.target)                    if (!src || !tgt) return null                    return (                      <g key={edge.id}>                        <line x1={src.x} y1={src.y} x2={tgt.x} y2={tgt.y} stroke="#30363d" strokeWidth={1 + edge.confidence} opacity={0.6} />                        <text x={(src.x + tgt.x) / 2} y={(src.y + tgt.y) / 2} fill="#8b949e" fontSize="8" textAnchor="middle">{edge.label}</text>                      </g>                    )                  })}                  {filteredNodes.map((node) => (                    <g key={node.id} onClick={() => setSelectedNode(node.id)} className="cursor-pointer">                      <circle cx={node.x} cy={node.y} r={selectedNode === node.id ? 10 : 6} fill={typeColors[node.type] || "#8b949e"} opacity={selectedNode && selectedNode !== node.id ? 0.3 : 1} stroke={selectedNode === node.id ? "#fff" : "none"} strokeWidth={2} />                      {bridgeNodeIds.has(node.id) && (                        <circle cx={node.x} cy={node.y} r={selectedNode === node.id ? 14 : 10} fill="none" stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="3,2" opacity={0.8} />                      )}                      <text x={node.x} y={node.y + 18} fill="#c9d1d9" fontSize="10" textAnchor="middle">{node.label}</text>                    </g>                  ))}                </g>              </svg>              {selectedNode && (                <div className="absolute bottom-4 left-4 rounded-md border border-border bg-card p-4 shadow-lg max-w-xs">                  {(() => {                    const node = nodes.find((n) => n.id === selectedNode)                    if (!node) return null                    return (                      <div>                        <p className="font-medium">{node.label}</p>                        <Badge className="mt-1 capitalize" style={{ backgroundColor: typeColors[node.type] || "#8b949e" }}>{node.type}</Badge>                        {bridgeNodeIds.has(node.id) && (                          <Badge className="mt-1 ml-1 bg-amber-500/20 text-amber-400 border-amber-500/20">Bridge</Badge>                        )}                        <div className="mt-2 flex gap-2">                          <Link href={`/entities/${node.id}`}><Button size="sm" variant="outline">View Details</Button></Link>                          <Button size="sm" variant="ghost" onClick={() => setSelectedNode(null)}>Close</Button>                        </div>                      </div>                    )                  })()}                </div>              )}              <div className="absolute top-4 right-4 rounded-md border border-border bg-card/90 p-2 text-xs">                <p className="font-medium mb-1">{filteredNodes.length} nodes | {filteredEdges.length} edges</p>                <div className="space-y-0.5">                  {nodeTypes.slice(0, 6).map((t) => (                    <div key={t} className="flex items-center gap-1.5">                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: typeColors[t] || "#8b949e" }} />                      <span className="capitalize">{t}</span>                    </div>                  ))}                </div>              </div>            </Card>            {showReasoning && (              <div className="w-80 shrink-0 overflow-y-auto">                <Tabs defaultValue="overview">                  <TabsList className="w-full">                    <TabsTrigger value="overview">Overview</TabsTrigger>                    <TabsTrigger value="clusters">Clusters</TabsTrigger>                    <TabsTrigger value="paths">Paths</TabsTrigger>                  </TabsList>                  <TabsContent value="overview" className="space-y-3 mt-3">                    <Card>                      <CardHeader className="pb-2"><CardTitle className="text-sm">Graph Stats</CardTitle></CardHeader>                      <CardContent className="space-y-1 text-xs">                        <div className="flex justify-between"><span>Evidence</span><span className="font-mono">{stats.evidenceCount}</span></div>                        <div className="flex justify-between"><span>Entities</span><span className="font-mono">{stats.entityCount}</span></div>                        <div className="flex justify-between"><span>Relationships</span><span className="font-mono">{stats.relationshipCount}</span></div>                        <div className="flex justify-between"><span>Connections</span><span className="font-mono">{stats.connectionCount}</span></div>                        <div className="flex justify-between"><span>Clusters</span><span className="font-mono">{stats.clusterCount}</span></div>                        <div className="flex justify-between"><span>Avg Density</span><span className="font-mono">{stats.averageClusterDensity.toFixed(2)}</span></div>                        <div className="flex justify-between"><span>Bridge Nodes</span><span className="font-mono">{stats.bridgeNodeCount}</span></div>                      </CardContent>                    </Card>                    {narratives.length > 0 && (                      <Card>                        <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-1"><Sparkles className="h-3.5 w-3.5" /> Narratives</CardTitle></CardHeader>                        <CardContent className="space-y-2">                          {narratives.map((n, i) => (                            <div key={i} className="text-xs border-l-2 border-indigo-500/30 pl-2">                              <p className="font-medium text-indigo-400">{n.title}</p>                              <p className="text-muted-foreground mt-0.5 line-clamp-3">{n.overview}</p>                              <Badge variant="outline" className="mt-1 text-[10px]">{(n.confidence * 100).toFixed(0)}% confidence</Badge>                            </div>                          ))}                        </CardContent>                      </Card>                    )}                    {contradictions.length > 0 && (                      <Card>                        <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5 text-amber-400" /> Contradictions</CardTitle></CardHeader>                        <CardContent className="space-y-2">                          {contradictions.map((c, i) => (                            <div key={i} className="text-xs border-l-2 border-amber-500/30 pl-2">                              <p className="font-medium">{c.subject}</p>                              <p className="text-muted-foreground mt-0.5">A: {c.claimA}</p>                              <p className="text-muted-foreground">B: {c.claimB}</p>                            </div>                          ))}                        </CardContent>                      </Card>                    )}                  </TabsContent>                  <TabsContent value="clusters" className="space-y-3 mt-3">                    {clusters.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">No clusters detected</p>}                    {clusters.map((c) => (                      <Card key={c.id}>                        <CardHeader className="pb-2">                          <div className="flex items-center justify-between">                            <CardTitle className="text-sm">{c.name}</CardTitle>                            <Badge variant="outline" className="text-[10px]">{c.status}</Badge>                          </div>                        </CardHeader>                        <CardContent className="space-y-1 text-xs">                          <p className="text-muted-foreground">{c.description}</p>                          <div className="flex gap-2 mt-1 flex-wrap">                            <Badge variant="outline">{c.evidenceCount} evidence</Badge>                            <Badge variant="outline"><Users className="h-2.5 w-2.5 mr-0.5" />{c.entityCount} entities</Badge>                            <Badge variant="outline">density {c.density.toFixed(2)}</Badge>                          </div>                        </CardContent>                      </Card>                    ))}                  </TabsContent>                  <TabsContent value="paths" className="space-y-3 mt-3">                    {hiddenPaths.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">No hidden paths found</p>}                    {hiddenPaths.map((p, i) => (                      <Card key={i}>                        <CardHeader className="pb-2">                          <CardTitle className="text-sm flex items-center gap-1"><GitBranch className="h-3.5 w-3.5" /> Path {i + 1}</CardTitle>                        </CardHeader>                        <CardContent className="text-xs space-y-1">                          <p className="text-muted-foreground">{p.explanation}</p>                          <div className="flex flex-wrap gap-1 mt-1">                            {p.signalTypes.map((s, j) => (                              <Badge key={j} variant="outline" className="text-[10px]">{s}</Badge>                            ))}                          </div>                        </CardContent>                      </Card>                    ))}                    {bridgeNodes.length > 0 && (                      <Card>                        <CardHeader className="pb-2"><CardTitle className="text-sm">Bridge Nodes</CardTitle></CardHeader>                        <CardContent className="space-y-1 text-xs">                          {bridgeNodes.map((b) => (                            <div key={b.entityId} className="flex items-center justify-between">                              <span>{b.entityName}</span>                              <Badge variant="outline" className="text-[10px]">{b.connectedEvidenceIds.length} conn</Badge>                            </div>                          ))}                        </CardContent>                      </Card>                    )}                  </TabsContent>                </Tabs>              </div>            )}          </div>        )}      </div>    </AppShell>  )}
+"use client";
+
+import { useEffect, useState, useCallback, useRef } from "react";
+import { AppShell } from "@/components/app-shell";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Search,
+  ZoomIn,
+  ZoomOut,
+  Maximize,
+  Network,
+  AlertTriangle,
+  GitBranch,
+  Sparkles,
+  Users,
+} from "lucide-react";
+import Link from "next/link";
+
+interface GraphNode {
+  id: string;
+  label: string;
+  type: string;
+  x: number;
+  y: number;
+}
+
+interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  label: string;
+  confidence: number;
+}
+
+interface ClusterView {
+  id: number;
+  name: string;
+  description: string;
+  density: number;
+  status: string;
+  evidenceCount: number;
+  entityCount: number;
+  evidenceIds: number[];
+}
+
+interface HiddenPathView {
+  path: number[];
+  bridgeEvidenceIds: number[];
+  explanation: string;
+  signalTypes: string[];
+}
+
+interface BridgeNodeView {
+  entityId: number;
+  entityName: string;
+  connectedEvidenceIds: number[];
+  betweennessScore: number;
+}
+
+interface ContradictionView {
+  evidenceIdA: number;
+  evidenceIdB: number;
+  subject: string;
+  claimA: string;
+  claimB: string;
+  confidence: number;
+}
+
+interface NarrativeView {
+  title: string;
+  overview: string;
+  clusterIds: number[];
+  evidenceIds: number[];
+  confidence: number;
+}
+
+const typeColors: Record<string, string> = {
+  person: "#3b82f6",
+  organization: "#a855f7",
+  company: "#10b981",
+  government: "#f59e0b",
+  project: "#f43f5e",
+  location: "#06b6d4",
+  mineral: "#64748b",
+  legislation: "#f97316",
+  bank: "#6366f1",
+  investor: "#ec4899",
+  mine: "#78716c",
+  infrastructure: "#14b8a6",
+};
+
+export default function GraphPage() {
+  const [nodes, setNodes] = useState<GraphNode[]>([]);
+  const [edges, setEdges] = useState<GraphEdge[]>([]);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [scale, setScale] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [showReasoning, setShowReasoning] = useState(false);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  // Graph reasoning data
+  const [clusters, setClusters] = useState<ClusterView[]>([]);
+  const [hiddenPaths, setHiddenPaths] = useState<HiddenPathView[]>([]);
+  const [bridgeNodes, setBridgeNodes] = useState<BridgeNodeView[]>([]);
+  const [contradictions, setContradictions] = useState<ContradictionView[]>([]);
+  const [narratives, setNarratives] = useState<NarrativeView[]>([]);
+  const [stats, setStats] = useState({
+    evidenceCount: 0,
+    entityCount: 0,
+    relationshipCount: 0,
+    connectionCount: 0,
+    clusterCount: 0,
+    averageClusterDensity: 0,
+    bridgeNodeCount: 0,
+  });
+
+  useEffect(() => {
+    fetch("/api/graph")
+      .then((r) => r.json())
+      .then((d) => {
+        const w = 800,
+          h = 600;
+        const positioned = d.nodes.map((n: any, i: number) => ({
+          ...n,
+          x:
+            w / 2 +
+            Math.cos((i / d.nodes.length) * Math.PI * 2) *
+              Math.min(w, h) *
+              0.35,
+          y:
+            h / 2 +
+            Math.sin((i / d.nodes.length) * Math.PI * 2) *
+              Math.min(w, h) *
+              0.35,
+        }));
+        setNodes(positioned);
+        setEdges(d.edges || []);
+        setClusters(d.clusters || []);
+        setHiddenPaths(d.hiddenPaths || []);
+        setBridgeNodes(d.bridgeNodes || []);
+        setContradictions(d.contradictions || []);
+        setNarratives(d.narratives || []);
+        setStats(d.stats || {});
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const filteredNodes = nodes.filter((n) => {
+    if (search && !n.label.toLowerCase().includes(search.toLowerCase()))
+      return false;
+    if (filter && n.type !== filter) return false;
+    return true;
+  });
+
+  const filteredIds = new Set(filteredNodes.map((n) => n.id));
+  const filteredEdges = edges.filter(
+    (e) => filteredIds.has(e.source) && filteredIds.has(e.target),
+  );
+
+  const handleZoom = (delta: number) =>
+    setScale((s) => Math.max(0.2, Math.min(3, s + delta)));
+  const handleReset = () => {
+    setScale(1);
+    setPan({ x: 0, y: 0 });
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.target === svgRef.current) {
+      setDragging(true);
+      setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+    }
+  };
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (dragging)
+      setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+  };
+  const handleMouseUp = () => setDragging(false);
+
+  const nodeTypes = [...new Set(nodes.map((n) => n.type))];
+  const bridgeNodeIds = new Set(bridgeNodes.map((b) => String(b.entityId)));
+
+  return (
+    <AppShell>
+      <div className="flex h-[calc(100vh-7rem)] flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              Relationship Graph
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Explore entity connections
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Input
+              placeholder="Search nodes..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-48"
+            />
+            <select
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="">All Types</option>
+              {nodeTypes.map((t) => (
+                <option key={t} value={t} className="capitalize">
+                  {t}
+                </option>
+              ))}
+            </select>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => handleZoom(0.2)}
+            >
+              <ZoomIn className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => handleZoom(-0.2)}
+            >
+              <ZoomOut className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="icon" onClick={handleReset}>
+              <Maximize className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowReasoning(!showReasoning)}
+            >
+              <Network className="h-4 w-4 mr-1" />{" "}
+              {showReasoning ? "Hide" : "Reasoning"}
+            </Button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="flex flex-1 items-center justify-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          </div>
+        ) : (
+          <div className="flex flex-1 gap-4 overflow-hidden">
+            <Card className="relative flex-1 overflow-hidden bg-[#0d1117]">
+              <svg
+                ref={svgRef}
+                className="h-full w-full cursor-grab active:cursor-grabbing"
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+              >
+                <g transform={`translate(${pan.x}, ${pan.y}) scale(${scale})`}>
+                  {filteredEdges.map((edge) => {
+                    const src = filteredNodes.find((n) => n.id === edge.source);
+                    const tgt = filteredNodes.find((n) => n.id === edge.target);
+                    if (!src || !tgt) return null;
+                    return (
+                      <g key={edge.id}>
+                        <line
+                          x1={src.x}
+                          y1={src.y}
+                          x2={tgt.x}
+                          y2={tgt.y}
+                          stroke="#30363d"
+                          strokeWidth={1 + edge.confidence}
+                          opacity={0.6}
+                        />
+                        <text
+                          x={(src.x + tgt.x) / 2}
+                          y={(src.y + tgt.y) / 2}
+                          fill="#8b949e"
+                          fontSize="8"
+                          textAnchor="middle"
+                        >
+                          {edge.label}
+                        </text>
+                      </g>
+                    );
+                  })}
+                  {filteredNodes.map((node) => (
+                    <g
+                      key={node.id}
+                      onClick={() => setSelectedNode(node.id)}
+                      className="cursor-pointer"
+                    >
+                      <circle
+                        cx={node.x}
+                        cy={node.y}
+                        r={selectedNode === node.id ? 10 : 6}
+                        fill={typeColors[node.type] || "#8b949e"}
+                        opacity={
+                          selectedNode && selectedNode !== node.id ? 0.3 : 1
+                        }
+                        stroke={selectedNode === node.id ? "#fff" : "none"}
+                        strokeWidth={2}
+                      />
+                      {bridgeNodeIds.has(node.id) && (
+                        <circle
+                          cx={node.x}
+                          cy={node.y}
+                          r={selectedNode === node.id ? 14 : 10}
+                          fill="none"
+                          stroke="#f59e0b"
+                          strokeWidth={1.5}
+                          strokeDasharray="3,2"
+                          opacity={0.8}
+                        />
+                      )}
+                      <text
+                        x={node.x}
+                        y={node.y + 18}
+                        fill="#c9d1d9"
+                        fontSize="10"
+                        textAnchor="middle"
+                      >
+                        {node.label}
+                      </text>
+                    </g>
+                  ))}
+                </g>
+              </svg>
+
+              {selectedNode && (
+                <div className="absolute bottom-4 left-4 rounded-md border border-border bg-card p-4 shadow-lg max-w-xs">
+                  {(() => {
+                    const node = nodes.find((n) => n.id === selectedNode);
+                    if (!node) return null;
+                    return (
+                      <div>
+                        <p className="font-medium">{node.label}</p>
+                        <Badge
+                          className="mt-1 capitalize"
+                          style={{
+                            backgroundColor: typeColors[node.type] || "#8b949e",
+                          }}
+                        >
+                          {node.type}
+                        </Badge>
+                        {bridgeNodeIds.has(node.id) && (
+                          <Badge className="mt-1 ml-1 bg-amber-500/20 text-amber-400 border-amber-500/20">
+                            Bridge
+                          </Badge>
+                        )}
+                        <div className="mt-2 flex gap-2">
+                          <Link href={`/entities/${node.id}`}>
+                            <Button size="sm" variant="outline">
+                              View Details
+                            </Button>
+                          </Link>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setSelectedNode(null)}
+                          >
+                            Close
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              <div className="absolute top-4 right-4 rounded-md border border-border bg-card/90 p-2 text-xs">
+                <p className="font-medium mb-1">
+                  {filteredNodes.length} nodes | {filteredEdges.length} edges
+                </p>
+                <div className="space-y-0.5">
+                  {nodeTypes.slice(0, 6).map((t) => (
+                    <div key={t} className="flex items-center gap-1.5">
+                      <span
+                        className="h-2 w-2 rounded-full"
+                        style={{ backgroundColor: typeColors[t] || "#8b949e" }}
+                      />
+                      <span className="capitalize">{t}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Card>
+
+            {showReasoning && (
+              <div className="w-80 shrink-0 overflow-y-auto">
+                <Tabs defaultValue="overview">
+                  <TabsList className="w-full">
+                    <TabsTrigger value="overview">Overview</TabsTrigger>
+                    <TabsTrigger value="clusters">Clusters</TabsTrigger>
+                    <TabsTrigger value="paths">Paths</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="overview" className="space-y-3 mt-3">
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm">Graph Stats</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-1 text-xs">
+                        <div className="flex justify-between">
+                          <span>Evidence</span>
+                          <span className="font-mono">
+                            {stats.evidenceCount}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Entities</span>
+                          <span className="font-mono">{stats.entityCount}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Relationships</span>
+                          <span className="font-mono">
+                            {stats.relationshipCount}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Connections</span>
+                          <span className="font-mono">
+                            {stats.connectionCount}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Clusters</span>
+                          <span className="font-mono">
+                            {stats.clusterCount}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Avg Density</span>
+                          <span className="font-mono">
+                            {stats.averageClusterDensity.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Bridge Nodes</span>
+                          <span className="font-mono">
+                            {stats.bridgeNodeCount}
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {narratives.length > 0 && (
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm flex items-center gap-1">
+                            <Sparkles className="h-3.5 w-3.5" /> Narratives
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-2">
+                          {narratives.map((n, i) => (
+                            <div
+                              key={i}
+                              className="text-xs border-l-2 border-indigo-500/30 pl-2"
+                            >
+                              <p className="font-medium text-indigo-400">
+                                {n.title}
+                              </p>
+                              <p className="text-muted-foreground mt-0.5 line-clamp-3">
+                                {n.overview}
+                              </p>
+                              <Badge
+                                variant="outline"
+                                className="mt-1 text-[10px]"
+                              >
+                                {(n.confidence * 100).toFixed(0)}% confidence
+                              </Badge>
+                            </div>
+                          ))}
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {contradictions.length > 0 && (
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm flex items-center gap-1">
+                            <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />{" "}
+                            Contradictions
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-2">
+                          {contradictions.map((c, i) => (
+                            <div
+                              key={i}
+                              className="text-xs border-l-2 border-amber-500/30 pl-2"
+                            >
+                              <p className="font-medium">{c.subject}</p>
+                              <p className="text-muted-foreground mt-0.5">
+                                A: {c.claimA}
+                              </p>
+                              <p className="text-muted-foreground">
+                                B: {c.claimB}
+                              </p>
+                            </div>
+                          ))}
+                        </CardContent>
+                      </Card>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="clusters" className="space-y-3 mt-3">
+                    {clusters.length === 0 && (
+                      <p className="text-xs text-muted-foreground text-center py-4">
+                        No clusters detected
+                      </p>
+                    )}
+                    {clusters.map((c) => (
+                      <Card key={c.id}>
+                        <CardHeader className="pb-2">
+                          <div className="flex items-center justify-between">
+                            <CardTitle className="text-sm">{c.name}</CardTitle>
+                            <Badge variant="outline" className="text-[10px]">
+                              {c.status}
+                            </Badge>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-1 text-xs">
+                          <p className="text-muted-foreground">
+                            {c.description}
+                          </p>
+                          <div className="flex gap-2 mt-1 flex-wrap">
+                            <Badge variant="outline">
+                              {c.evidenceCount} evidence
+                            </Badge>
+                            <Badge variant="outline">
+                              <Users className="h-2.5 w-2.5 mr-0.5" />
+                              {c.entityCount} entities
+                            </Badge>
+                            <Badge variant="outline">
+                              density {c.density.toFixed(2)}
+                            </Badge>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </TabsContent>
+
+                  <TabsContent value="paths" className="space-y-3 mt-3">
+                    {hiddenPaths.length === 0 && (
+                      <p className="text-xs text-muted-foreground text-center py-4">
+                        No hidden paths found
+                      </p>
+                    )}
+                    {hiddenPaths.map((p, i) => (
+                      <Card key={i}>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm flex items-center gap-1">
+                            <GitBranch className="h-3.5 w-3.5" /> Path {i + 1}
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="text-xs space-y-1">
+                          <p className="text-muted-foreground">
+                            {p.explanation}
+                          </p>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {p.signalTypes.map((s, j) => (
+                              <Badge
+                                key={j}
+                                variant="outline"
+                                className="text-[10px]"
+                              >
+                                {s}
+                              </Badge>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+
+                    {bridgeNodes.length > 0 && (
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm">
+                            Bridge Nodes
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-1 text-xs">
+                          {bridgeNodes.map((b) => (
+                            <div
+                              key={b.entityId}
+                              className="flex items-center justify-between"
+                            >
+                              <span>{b.entityName}</span>
+                              <Badge variant="outline" className="text-[10px]">
+                                {b.connectedEvidenceIds.length} conn
+                              </Badge>
+                            </div>
+                          ))}
+                        </CardContent>
+                      </Card>
+                    )}
+                  </TabsContent>
+                </Tabs>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </AppShell>
+  );
+}

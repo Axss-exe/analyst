@@ -1,6 +1,6 @@
-import { generateWithAI } from "./client"
-import { estimateTokens, splitByTokenBudget } from "./token-counter"
-import { startStage, completeStage, failStage } from "@/lib/jobs"
+import { generateWithAI } from "./client";
+import { estimateTokens, splitByTokenBudget } from "./token-counter";
+import { startStage, completeStage, failStage } from "@/lib/jobs";
 
 /**
  * Generates a factual summary from evidence text.
@@ -9,49 +9,69 @@ import { startStage, completeStage, failStage } from "@/lib/jobs"
  */
 export async function generateEvidenceSummary(
   evidenceText: string,
-  jobId?: string
+  jobId?: string,
 ): Promise<string> {
-  const pages = Math.ceil(estimateTokens(evidenceText) / 750)
-  console.log(`[summary] Document: ${pages} pages, ${estimateTokens(evidenceText)} tokens`)
+  const pages = Math.ceil(estimateTokens(evidenceText) / 750);
+  console.log(
+    `[summary] Document: ${pages} pages, ${estimateTokens(evidenceText)} tokens`,
+  );
 
   // Small doc: single call
   if (pages <= 40) {
-    if (jobId) startStage(jobId, "Summarization", "Analyzing document...")
-    const result = await summarizeSingle(evidenceText)
-    if (jobId) completeStage(jobId, "Summarization", "Summary complete")
-    return result
+    if (jobId) startStage(jobId, "Summarization", "Analyzing document...");
+    const result = await summarizeSingle(evidenceText);
+    if (jobId) completeStage(jobId, "Summarization", "Summary complete");
+    return result;
   }
 
   // Large doc: map-reduce with progress tracking
-  if (jobId) startStage(jobId, "Summarization", `Chunking ${pages}-page document...`)
-  const chunks = splitByTokenBudget(evidenceText, 50000, 200)
-  console.log(`[summary] Split into ${chunks.length} chunks`)
-  if (jobId) completeStage(jobId, "Summarization", `${chunks.length} chunks created`)
+  if (jobId)
+    startStage(jobId, "Summarization", `Chunking ${pages}-page document...`);
+  const chunks = splitByTokenBudget(evidenceText, 50000, 200);
+  console.log(`[summary] Split into ${chunks.length} chunks`);
+  if (jobId)
+    completeStage(jobId, "Summarization", `${chunks.length} chunks created`);
 
   // Map: summarize each chunk
-  if (jobId) startStage(jobId, "Chunk Analysis", `Processing ${chunks.length} chunks...`)
-  const chunkSummaries: string[] = []
+  if (jobId)
+    startStage(
+      jobId,
+      "Chunk Analysis",
+      `Processing ${chunks.length} chunks...`,
+    );
+  const chunkSummaries: string[] = [];
 
   for (let i = 0; i < chunks.length; i++) {
-    if (jobId) startStage(jobId, "Chunk Analysis", `Chunk ${i + 1}/${chunks.length}...`)
+    if (jobId)
+      startStage(jobId, "Chunk Analysis", `Chunk ${i + 1}/${chunks.length}...`);
     try {
-      const summary = await summarizeChunk(chunks[i], i + 1, chunks.length)
-      chunkSummaries.push(summary)
-      if (jobId) completeStage(jobId, "Chunk Analysis", `Chunk ${i + 1}/${chunks.length} done`)
+      const summary = await summarizeChunk(chunks[i], i + 1, chunks.length);
+      chunkSummaries.push(summary);
+      if (jobId)
+        completeStage(
+          jobId,
+          "Chunk Analysis",
+          `Chunk ${i + 1}/${chunks.length} done`,
+        );
     } catch (e: any) {
-      console.error(`[summary] Chunk ${i + 1} failed:`, e.message)
-      chunkSummaries.push(`[Chunk ${i + 1} failed to process]`)
-      if (jobId) failStage(jobId, "Chunk Analysis", `Chunk ${i + 1} failed: ${e.message}`)
+      console.error(`[summary] Chunk ${i + 1} failed:`, e.message);
+      chunkSummaries.push(`[Chunk ${i + 1} failed to process]`);
+      if (jobId)
+        failStage(
+          jobId,
+          "Chunk Analysis",
+          `Chunk ${i + 1} failed: ${e.message}`,
+        );
     }
   }
 
   // Reduce: synthesize final summary
-  if (jobId) startStage(jobId, "Synthesis", "Combining chunk summaries...")
-  const combined = chunkSummaries.join("\n\n---\n\n")
-  const finalSummary = await synthesizeSummaries(combined, chunks.length)
-  if (jobId) completeStage(jobId, "Synthesis", "Final summary ready")
+  if (jobId) startStage(jobId, "Synthesis", "Combining chunk summaries...");
+  const combined = chunkSummaries.join("\n\n---\n\n");
+  const finalSummary = await synthesizeSummaries(combined, chunks.length);
+  if (jobId) completeStage(jobId, "Synthesis", "Final summary ready");
 
-  return finalSummary
+  return finalSummary;
 }
 
 async function summarizeSingle(text: string): Promise<string> {
@@ -68,16 +88,21 @@ CRITICAL RULES:
 Evidence:
 ${text}
 
-Provide a concise analytical summary in 2-3 paragraphs.`
+Provide a concise analytical summary in 2-3 paragraphs.`;
 
   return generateWithAI(prompt, {
-    systemPrompt: "You are a senior intelligence analyst. Summarize evidence analytically. NEVER copy text verbatim. Synthesize facts into original prose.",
+    systemPrompt:
+      "You are a senior intelligence analyst. Summarize evidence analytically. NEVER copy text verbatim. Synthesize facts into original prose.",
     temperature: 0.2,
     maxTokens: 2048,
-  })
+  });
 }
 
-async function summarizeChunk(text: string, index: number, total: number): Promise<string> {
+async function summarizeChunk(
+  text: string,
+  index: number,
+  total: number,
+): Promise<string> {
   const prompt = `You are processing chunk ${index} of ${total} from a large intelligence document.
 
 CRITICAL RULES:
@@ -89,16 +114,20 @@ CRITICAL RULES:
 Chunk ${index}/${total}:
 ${text}
 
-Provide a concise factual summary of this chunk (max 300 words).`
+Provide a concise factual summary of this chunk (max 300 words).`;
 
   return generateWithAI(prompt, {
-    systemPrompt: "You are a document analysis system. Extract and synthesize facts. Never copy verbatim.",
+    systemPrompt:
+      "You are a document analysis system. Extract and synthesize facts. Never copy verbatim.",
     temperature: 0.2,
     maxTokens: 512,
-  })
+  });
 }
 
-async function synthesizeSummaries(combinedSummaries: string, chunkCount: number): Promise<string> {
+async function synthesizeSummaries(
+  combinedSummaries: string,
+  chunkCount: number,
+): Promise<string> {
   const prompt = `You are synthesizing ${chunkCount} chunk summaries into a single coherent intelligence summary.
 
 CRITICAL RULES:
@@ -111,11 +140,12 @@ CRITICAL RULES:
 Chunk Summaries:
 ${combinedSummaries}
 
-Provide the final synthesized summary (max 600 words).`
+Provide the final synthesized summary (max 600 words).`;
 
   return generateWithAI(prompt, {
-    systemPrompt: "You are a senior intelligence analyst synthesizing multi-chunk document analysis. Produce original prose. Never copy verbatim.",
+    systemPrompt:
+      "You are a senior intelligence analyst synthesizing multi-chunk document analysis. Produce original prose. Never copy verbatim.",
     temperature: 0.2,
     maxTokens: 2048,
-  })
+  });
 }

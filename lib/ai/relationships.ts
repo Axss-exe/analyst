@@ -1,1 +1,79 @@
-import { generateWithAI } from "./client"export interface ExtractedRelationship {  source: string  target: string  type: string  description: string}export async function extractRelationshipsFromText(  text: string,  entities: Array<{ name: string; type: string }>): Promise<ExtractedRelationship[]> {  if (entities.length < 2) {    return []  }  const sample = text.slice(0, 30000)  const entityList = entities.map((e, i) => `${i + 1}. ${e.name} (${e.type})`).join("\n")  const prompt = `Given the following text and the list of entities extracted from it, identify relationships between those entities.Text:${sample}Entities:${entityList}Respond in this JSON format only:[  { "source": "Entity Name", "target": "Entity Name", "type": "relationship type", "description": "Brief description of the relationship" }]CRITICAL RULES:- Only use entity names EXACTLY as they appear in the list above.- "source" and "target" MUST be non-empty and MUST match names from the entity list.- "type" should describe the relationship (e.g., "owns", "regulates", "works for", "funds", "opposes").- "description" must be a brief factual sentence.- Only output valid JSON array. No markdown, no explanations.`  const response = await generateWithAI(prompt, {    systemPrompt: "You are a relationship extraction system. Identify factual relationships between named entities. NEVER invent entities not in the list.",    temperature: 0.1,    maxTokens: 2048,    timeoutMs: 45000,  })  try {    const jsonMatch = response.match(/\[.*\]/s)    if (jsonMatch) {      const parsed = JSON.parse(jsonMatch[0])      if (Array.isArray(parsed)) {        const entityNames = new Set(entities.map((e) => e.name))        return parsed          .filter((r: any) =>            typeof r.source === "string" &&            typeof r.target === "string" &&            entityNames.has(r.source) &&            entityNames.has(r.target) &&            r.source !== r.target          )          .map((r: any) => ({            source: r.source.trim(),            target: r.target.trim(),            type: (r.type || "related").trim(),            description: (r.description || "").trim(),          }))      }    }  } catch (e) {    console.error("[relationships] Parse failed:", e)  }  return []}
+import { generateWithAI } from "./client";
+
+export interface ExtractedRelationship {
+  source: string;
+  target: string;
+  type: string;
+  description: string;
+}
+
+export async function extractRelationshipsFromText(
+  text: string,
+  entities: Array<{ name: string; type: string }>,
+): Promise<ExtractedRelationship[]> {
+  if (entities.length < 2) {
+    return [];
+  }
+
+  const sample = text.slice(0, 30000);
+  const entityList = entities
+    .map((e, i) => `${i + 1}. ${e.name} (${e.type})`)
+    .join("\n");
+
+  const prompt = `Given the following text and the list of entities extracted from it, identify relationships between those entities.
+
+Text:
+${sample}
+
+Entities:
+${entityList}
+
+Respond in this JSON format only:
+[
+  { "source": "Entity Name", "target": "Entity Name", "type": "relationship type", "description": "Brief description of the relationship" }
+]
+
+CRITICAL RULES:
+- Only use entity names EXACTLY as they appear in the list above.
+- "source" and "target" MUST be non-empty and MUST match names from the entity list.
+- "type" should describe the relationship (e.g., "owns", "regulates", "works for", "funds", "opposes").
+- "description" must be a brief factual sentence.
+- Only output valid JSON array. No markdown, no explanations.`;
+
+  const response = await generateWithAI(prompt, {
+    systemPrompt:
+      "You are a relationship extraction system. Identify factual relationships between named entities. NEVER invent entities not in the list.",
+    temperature: 0.1,
+    maxTokens: 2048,
+    timeoutMs: 45000,
+  });
+
+  try {
+    const jsonMatch = response.match(/\[.*\]/s);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (Array.isArray(parsed)) {
+        const entityNames = new Set(entities.map((e) => e.name));
+        return parsed
+          .filter(
+            (r: any) =>
+              typeof r.source === "string" &&
+              typeof r.target === "string" &&
+              entityNames.has(r.source) &&
+              entityNames.has(r.target) &&
+              r.source !== r.target,
+          )
+          .map((r: any) => ({
+            source: r.source.trim(),
+            target: r.target.trim(),
+            type: (r.type || "related").trim(),
+            description: (r.description || "").trim(),
+          }));
+      }
+    }
+  } catch (e) {
+    console.error("[relationships] Parse failed:", e);
+  }
+
+  return [];
+}

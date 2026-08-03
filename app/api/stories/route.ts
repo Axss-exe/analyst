@@ -1,1 +1,158 @@
-import { NextRequest, NextResponse } from "next/server"import { db } from "@/db/client"import { stories, storyEvidence, timelineEvents, narratives } from "@/db/schema"import { eq, desc } from "drizzle-orm"import { requireAuth } from "@/lib/auth"export async function GET(request: NextRequest) {  try {    const user = await requireAuth()    const { searchParams } = new URL(request.url)    const status = searchParams.get("status") || "active"    const includeAuto = searchParams.get("includeAuto") !== "false"    // Manual stories    const storyList = db.select().from(stories)      .where(eq(stories.status, status as any))      .orderBy(desc(stories.updatedAt))      .all()    const storiesWithData = storyList.map((story) => {      const linkedEvidence = db.select().from(storyEvidence)        .where(eq(storyEvidence.storyId, story.id))        .all()      const events = db.select().from(timelineEvents)        .where(eq(timelineEvents.storyId, story.id))        .all()      return {        ...story,        evidenceCount: linkedEvidence.length,        linkedEvidence,        timelineEvents: events,        generationType: "manual",      }    })    // Auto-generated narratives    let autoNarratives: any[] = []    if (includeAuto) {      const narrativeRows = db.select().from(narratives)        .orderBy(desc(narratives.createdAt))        .all()      autoNarratives = narrativeRows.map((n) => {        let clusterIds: number[] = []        let evidenceIds: number[] = []        try { clusterIds = JSON.parse(n.clusterIds) } catch { /* ignore */ }        try { evidenceIds = JSON.parse(n.evidenceIds) } catch { /* ignore */ }        return {          id: n.id,          title: n.title,          overview: n.overview,          status: "active",          createdAt: n.createdAt,          updatedAt: n.createdAt,          evidenceCount: evidenceIds.length,          linkedEvidence: evidenceIds.map((id) => ({ evidenceId: id })),          timelineEvents: [],          generationType: n.generationType,          confidence: n.confidence,          clusterIds,          evidenceIds,        }      })    }    return NextResponse.json({      stories: [...storiesWithData, ...autoNarratives],      total: storiesWithData.length + autoNarratives.length,      manualCount: storiesWithData.length,      autoCount: autoNarratives.length,    })  } catch (error: any) {    if (error.message === "Unauthorized") {      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })    }    console.error("Stories list error:", error)    return NextResponse.json({ error: "Failed to fetch stories" }, { status: 500 })  }}export async function POST(request: NextRequest) {  try {    const user = await requireAuth()    const body = await request.json()    const { title, overview, evidenceIds } = body    if (!title || !overview) {      return NextResponse.json({ error: "Title and overview are required" }, { status: 400 })    }    const story = db.insert(stories).values({      title,      overview,      status: "active",      createdBy: user.id,    }).returning().get()    if (evidenceIds && evidenceIds.length > 0) {      for (const evidenceId of evidenceIds) {        db.insert(storyEvidence).values({          storyId: story.id,          evidenceId,          confidence: 0.7,          relationshipType: "manual",        }).run()      }    }    return NextResponse.json({ story, linkedEvidence: evidenceIds?.length || 0 })  } catch (error: any) {    if (error.message === "Unauthorized") {      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })    }    console.error("Story create error:", error)    return NextResponse.json({ error: "Failed to create story" }, { status: 500 })  }}
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/db/client";
+import {
+  stories,
+  storyEvidence,
+  timelineEvents,
+  narratives,
+} from "@/db/schema";
+import { eq, desc } from "drizzle-orm";
+import { requireAuth } from "@/lib/auth";
+
+export async function GET(request: NextRequest) {
+  try {
+    const user = await requireAuth();
+    const { searchParams } = new URL(request.url);
+    const status = searchParams.get("status") || "active";
+    const includeAuto = searchParams.get("includeAuto") !== "false";
+
+    // Manual stories
+    const storyList = db
+      .select()
+      .from(stories)
+      .where(eq(stories.status, status as any))
+      .orderBy(desc(stories.updatedAt))
+      .all();
+
+    const storiesWithData = storyList.map((story) => {
+      const linkedEvidence = db
+        .select()
+        .from(storyEvidence)
+        .where(eq(storyEvidence.storyId, story.id))
+        .all();
+      const events = db
+        .select()
+        .from(timelineEvents)
+        .where(eq(timelineEvents.storyId, story.id))
+        .all();
+
+      return {
+        ...story,
+        evidenceCount: linkedEvidence.length,
+        linkedEvidence,
+        timelineEvents: events,
+        generationType: "manual",
+      };
+    });
+
+    // Auto-generated narratives
+    let autoNarratives: any[] = [];
+    if (includeAuto) {
+      const narrativeRows = db
+        .select()
+        .from(narratives)
+        .orderBy(desc(narratives.createdAt))
+        .all();
+
+      autoNarratives = narrativeRows.map((n) => {
+        let clusterIds: number[] = [];
+        let evidenceIds: number[] = [];
+        try {
+          clusterIds = JSON.parse(n.clusterIds);
+        } catch {
+          /* ignore */
+        }
+        try {
+          evidenceIds = JSON.parse(n.evidenceIds);
+        } catch {
+          /* ignore */
+        }
+
+        return {
+          id: n.id,
+          title: n.title,
+          overview: n.overview,
+          status: "active",
+          createdAt: n.createdAt,
+          updatedAt: n.createdAt,
+          evidenceCount: evidenceIds.length,
+          linkedEvidence: evidenceIds.map((id) => ({ evidenceId: id })),
+          timelineEvents: [],
+          generationType: n.generationType,
+          confidence: n.confidence,
+          clusterIds,
+          evidenceIds,
+        };
+      });
+    }
+
+    return NextResponse.json({
+      stories: [...storiesWithData, ...autoNarratives],
+      total: storiesWithData.length + autoNarratives.length,
+      manualCount: storiesWithData.length,
+      autoCount: autoNarratives.length,
+    });
+  } catch (error: any) {
+    if (error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    console.error("Stories list error:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch stories" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const user = await requireAuth();
+    const body = await request.json();
+    const { title, overview, evidenceIds } = body;
+
+    if (!title || !overview) {
+      return NextResponse.json(
+        { error: "Title and overview are required" },
+        { status: 400 },
+      );
+    }
+
+    const story = db
+      .insert(stories)
+      .values({
+        title,
+        overview,
+        status: "active",
+        createdBy: user.id,
+      })
+      .returning()
+      .get();
+
+    if (evidenceIds && evidenceIds.length > 0) {
+      for (const evidenceId of evidenceIds) {
+        db.insert(storyEvidence)
+          .values({
+            storyId: story.id,
+            evidenceId,
+            confidence: 0.7,
+            relationshipType: "manual",
+          })
+          .run();
+      }
+    }
+
+    return NextResponse.json({
+      story,
+      linkedEvidence: evidenceIds?.length || 0,
+    });
+  } catch (error: any) {
+    if (error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    console.error("Story create error:", error);
+    return NextResponse.json(
+      { error: "Failed to create story" },
+      { status: 500 },
+    );
+  }
+}
