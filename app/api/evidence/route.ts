@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db/client";
 import { evidence } from "@/db/schema";
-import { like, desc, sql } from "drizzle-orm";
+import { like, desc, sql, eq } from "drizzle-orm";
 import { requireAuth } from "@/lib/auth";
 import { logAction } from "@/lib/audit";
 import { enqueueEvidenceJob } from "@/lib/worker";

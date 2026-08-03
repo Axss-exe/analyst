@@ -19,7 +19,7 @@ import {
   detectContradictions,
   generateNarrativeFromCluster,
 } from "@/lib/graph";
-import { updateJob } from "@/lib/jobs";
+import { updateJob, enqueueJob } from "@/lib/jobs";
 
 interface ExtractionEntity {
   name: string;
@@ -60,12 +60,40 @@ interface StructuredExtraction {
   summary?: string;
 }
 
+// NEW: enqueueEvidenceJob — called by the API route to start background processing
+export function enqueueEvidenceJob(
+  evidenceId: number,
+  content: string,
+  userId: number,
+): string {
+  const jobId = enqueueJob([
+    "init",
+    "extraction",
+    "entities",
+    "facts",
+    "timeline",
+    "relationships",
+    "embeddings",
+    "connections",
+    "clusters",
+    "narratives",
+    "complete",
+  ]);
+
+  // Fire off processing in the background — do NOT await
+  processEvidence(evidenceId, jobId).catch((err) => {
+    console.error(`[worker] Background job ${jobId} failed:`, err);
+  });
+
+  return jobId;
+}
+
 export async function processEvidence(evidenceId: number, jobId: string) {
   try {
     await updateJob(jobId, {
       stage: "init",
       progress: 5,
-      status: "processing",
+      status: "running",
     });
 
     // Load evidence
@@ -91,7 +119,7 @@ export async function processEvidence(evidenceId: number, jobId: string) {
     // Single LLM call for structured extraction
     const extraction: StructuredExtraction = await extractStructuredFacts(text);
 
-    // FIX 1: Write confidence to evidence table (not just aiMetadata)
+    // Write confidence to evidence table (not just aiMetadata)
     const existingMeta =
       typeof item.aiMetadata === "string"
         ? JSON.parse(item.aiMetadata)
@@ -232,7 +260,7 @@ export async function processEvidence(evidenceId: number, jobId: string) {
 
     await updateJob(jobId, { stage: "connections", progress: 85 });
 
-    // FIX 2: Clean up old connections using OR (not AND)
+    // Clean up old connections using OR (not AND)
     db.delete(evidenceConnections)
       .where(
         or(

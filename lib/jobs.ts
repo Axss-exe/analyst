@@ -90,6 +90,29 @@ export async function processJob<T>(
   }
 }
 
+// NEW: updateJob — used by the worker to set stage/progress/status in one call
+export function updateJob(
+  jobId: string,
+  update: {
+    stage?: string;
+    progress?: number;
+    status?: JobStatus;
+    error?: string;
+  },
+) {
+  const jobRow = db.select().from(jobs).where(eq(jobs.id, jobId)).get();
+  if (!jobRow) return;
+
+  const setData: any = { updatedAt: new Date().toISOString() };
+
+  if (update.status) setData.status = update.status;
+  if (update.progress !== undefined) setData.progress = update.progress;
+  if (update.stage) setData.currentStage = update.stage;
+  if (update.error) setData.error = update.error;
+
+  db.update(jobs).set(setData).where(eq(jobs.id, jobId)).run();
+}
+
 export function startStage(jobId: string, stageName: string, message?: string) {
   const jobRow = db.select().from(jobs).where(eq(jobs.id, jobId)).get();
   if (!jobRow) return;
