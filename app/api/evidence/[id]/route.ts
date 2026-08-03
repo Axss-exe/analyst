@@ -8,10 +8,8 @@ import {
   evidenceConnections,
   timelineEvents,
   relationships,
-  graphClusters,
-  narratives,
 } from "@/db/schema";
-import { eq, and, or, sql } from "drizzle-orm";
+import { eq, and, or } from "drizzle-orm";
 import { requireAuth } from "@/lib/auth";
 
 export async function GET(
@@ -27,7 +25,7 @@ export async function GET(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    // FIX: Join evidenceEntities → entities to get names, types, metadata
+    // Join evidenceEntities → entities to get names, types, metadata
     const linkedEntities = db
       .select({
         id: entities.id,
@@ -53,11 +51,13 @@ export async function GET(
       .where(eq(timelineEvents.evidenceId, id))
       .all();
 
+    // FIX: Wrap response in the shape the frontend expects
     return NextResponse.json({
-      ...item,
-      entities: linkedEntities,
-      facts: factList,
+      evidence: item,
+      linkedEntities: linkedEntities,
+      linkedStories: [], // TODO: query storyEvidence table if you want linked stories
       timelineEvents: timeline,
+      facts: factList,
     });
   } catch (error: any) {
     if (error.message === "Unauthorized") {
@@ -109,7 +109,6 @@ export async function DELETE(
     const user = await requireAuth();
     const id = parseInt(params.id);
 
-    // Cascade delete related records
     db.delete(facts).where(eq(facts.evidenceId, id)).run();
 
     db.delete(evidenceConnections)
@@ -131,7 +130,6 @@ export async function DELETE(
       .where(eq(evidenceEntities.evidenceId, id))
       .run();
 
-    // Delete evidence itself
     db.delete(evidence).where(eq(evidence.id, id)).run();
 
     return NextResponse.json({ success: true });

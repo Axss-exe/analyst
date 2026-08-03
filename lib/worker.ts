@@ -8,118 +8,150 @@ import {
   timelineEvents,
   relationships,
 } from "@/db/schema";
-import { eq, and, or, sql } from "drizzle-orm";
+import { eq, and, or } from "drizzle-orm";
 import { extractStructuredFacts } from "@/lib/ai/extraction";
-import { generateEmbeddings } from "@/lib/ai/similarity";
+import { evaluateSourceConfidence } from "@/lib/ai/confidence";
 import {
-  buildEvidenceGraph,
+  buildGraph,
   computeSignals,
-  detectClusters,
+  findClusters,
   findHiddenPaths,
-  detectContradictions,
-  generateNarrativeFromCluster,
+  findContradictions,
+  detectNarratives,
 } from "@/lib/graph";
 import { updateJob, enqueueJob } from "@/lib/jobs";
 
-interface ExtractionEntity {
-  name: string;
-  type: string;
-  metadata?: Record<string, any>;
-}
-
-interface ExtractionFact {
-  subject: string;
-  predicate: string;
-  object: string;
-  confidence?: number;
-  temporalInfo?: any;
-}
-
-interface ExtractionTimelineEvent {
-  date?: string;
-  event: string;
-  entityNames?: string[];
-}
-
-interface ExtractionRelationship {
-  sourceEntityId?: number;
-  targetEntityId?: number;
-  source?: string;
-  target?: string;
-  type: string;
-  metadata?: any;
-}
-
-interface StructuredExtraction {
-  confidence: number;
-  entities: ExtractionEntity[];
-  facts: ExtractionFact[];
-  timeline: ExtractionTimelineEvent[];
-  relationships: ExtractionRelationship[];
-  topics?: string[];
-  summary?: string;
-}
-
-// NEW: enqueueEvidenceJob — called by the API route to start background processing
 export function enqueueEvidenceJob(
   evidenceId: number,
-  content: string,
+  _content: string,
   userId: number,
 ): string {
   const jobId = enqueueJob([
     "init",
     "extraction",
+    "confidence",
     "entities",
     "facts",
     "timeline",
     "relationships",
-    "embeddings",
     "connections",
     "clusters",
     "narratives",
     "complete",
   ]);
 
-  // Fire off processing in the background — do NOT await
-  processEvidence(evidenceId, jobId).catch((err) => {
-    console.error(`[worker] Background job ${jobId} failed:`, err);
+  console.log(`[worker] Enqueued job ${jobId} for evidence ${evidenceId}`);
+
+  setImmediate(() => {
+    processEvidence(evidenceId, jobId, userId).catch((err) => {
+      console.error(`[worker] FATAL: Job ${jobId} crashed:`, err);
+      try {
+        updateJob(jobId, {
+          stage: "error",
+          status: "failed",
+          error: err?.message || String(err),
+        });
+      } catch (e) {
+        console.error(`[worker] Could not update job ${jobId} after crash:`, e);
+      }
+    });
   });
 
   return jobId;
 }
 
-export async function processEvidence(evidenceId: number, jobId: string) {
-  try {
-    await updateJob(jobId, {
-      stage: "init",
-      progress: 5,
-      status: "running",
+export async function processEvidence(
+  evidenceId: number,
+  jobId: string,
+  userId: number,
+) {
+  console.log(`[worker] Starting job ${jobId} for evidence ${evidenceId}`);
+
+  updateJob(jobId, { stage: "init", progress: 5, status: "running" });
+
+  const rows = db
+    .select()
+    .from(evidence)
+    .where(eq(evidence.id, evidenceId))
+    .all();
+  if (!rows || rows.length === 0) {
+    throw new Error(`Evidence ${evidenceId} not found in DB`);
+  }
+  const item = rows[0];
+
+  const text = item.summary || "";
+  console.log(
+    `[worker] Evidence ${evidenceId} summary length: ${text.length} chars`,
+  );
+
+  if (!text.trim()) {
+    console.log(
+      `[worker] Evidence ${evidenceId} has no summary, skipping extraction`,
+    );
+    updateJob(jobId, {
+      stage: "complete",
+      progress: 100,
+      status: "completed",
     });
+    return;
+  }
 
-    // Load evidence
-    const [item] = db
-      .select()
-      .from(evidence)
-      .where(eq(evidence.id, evidenceId))
-      .all();
-    if (!item) throw new Error(`Evidence ${evidenceId} not found`);
+  // ─── STAGE: extraction ───
+  let extraction: any;
+  try {
+    updateJob(jobId, { stage: "extraction", progress: 15 });
+    console.log(`[worker] Calling extractStructuredFacts for ${evidenceId}...`);
+    extraction = await extractStructuredFacts(text);
+    console.log(
+      `[worker] Extraction returned: ${extraction.entities?.length || 0} entities, ${extraction.events?.length || 0} events, ${extraction.relationships?.length || 0} relationships`,
+    );
+  } catch (exErr: any) {
+    console.error(`[worker] Extraction failed for ${evidenceId}:`, exErr);
+    extraction = {
+      confidence: 0.5,
+      entities: [],
+      events: [],
+      relationships: [],
+      claims: [],
+      topics: [],
+      summary: "",
+    };
+  }
 
-    const text = item.content || item.text || item.fullText || "";
-    if (!text.trim()) {
-      await updateJob(jobId, {
-        stage: "complete",
-        progress: 100,
-        status: "completed",
-      });
-      return;
-    }
+  // ─── STAGE: confidence ───
+  let confidenceScore = extraction.confidence ?? 0.5;
+  let confidenceEvaluation: any = null;
 
-    await updateJob(jobId, { stage: "extraction", progress: 15 });
+  try {
+    updateJob(jobId, { stage: "confidence", progress: 20 });
+    console.log(
+      `[worker] Calling evaluateSourceConfidence for ${evidenceId}...`,
+    );
+    const evalResult = await evaluateSourceConfidence(
+      text,
+      item.sourceType,
+      item.source,
+    );
+    confidenceScore = evalResult.score;
+    confidenceEvaluation = {
+      score: evalResult.score,
+      reasoning: evalResult.reasoning,
+      factors: evalResult.factors,
+    };
+    console.log(
+      `[worker] Confidence: ${confidenceScore} — ${evalResult.reasoning.slice(0, 80)}...`,
+    );
+  } catch (confErr: any) {
+    console.warn(`[worker] Confidence eval failed:`, confErr.message);
+    confidenceEvaluation = {
+      score: confidenceScore,
+      reasoning:
+        "Detailed confidence evaluation failed. Using extraction fallback.",
+      factors: [`Extraction confidence: ${confidenceScore}`],
+    };
+  }
 
-    // Single LLM call for structured extraction
-    const extraction: StructuredExtraction = await extractStructuredFacts(text);
-
-    // Write confidence to evidence table (not just aiMetadata)
+  try {
     const existingMeta =
       typeof item.aiMetadata === "string"
         ? JSON.parse(item.aiMetadata)
@@ -127,20 +159,29 @@ export async function processEvidence(evidenceId: number, jobId: string) {
 
     db.update(evidence)
       .set({
-        confidence: extraction.confidence ?? 0.5,
+        confidence: confidenceScore,
         aiMetadata: JSON.stringify({
           ...existingMeta,
           extraction,
+          confidenceEvaluation,
           processedAt: new Date().toISOString(),
         }),
       })
       .where(eq(evidence.id, evidenceId))
       .run();
+    console.log(
+      `[worker] Saved confidence ${confidenceScore} to evidence ${evidenceId}`,
+    );
+  } catch (dbErr: any) {
+    console.error(`[worker] Failed to save metadata:`, dbErr);
+  }
 
-    await updateJob(jobId, { stage: "entities", progress: 30 });
-
-    // Save entities with upsert
+  // ─── STAGE: entities ───
+  const entityNameToId = new Map<string, number>();
+  try {
+    updateJob(jobId, { stage: "entities", progress: 30 });
     const seenEntityIds = new Set<number>();
+
     for (const ent of extraction.entities || []) {
       let entityId: number;
 
@@ -152,6 +193,7 @@ export async function processEvidence(evidenceId: number, jobId: string) {
 
       if (existing.length > 0) {
         entityId = existing[0].id;
+        entityNameToId.set(ent.name, entityId);
         const oldMeta =
           typeof existing[0].metadata === "string"
             ? JSON.parse(existing[0].metadata)
@@ -173,11 +215,14 @@ export async function processEvidence(evidenceId: number, jobId: string) {
           .values({
             name: ent.name,
             type: ent.type,
+            aliases: JSON.stringify(ent.aliases || []),
             metadata: JSON.stringify(ent.metadata || {}),
+            createdBy: userId,
             createdAt: new Date().toISOString(),
           })
           .run();
         entityId = Number(result.lastInsertRowid);
+        entityNameToId.set(ent.name, entityId);
       }
 
       if (!seenEntityIds.has(entityId)) {
@@ -185,82 +230,103 @@ export async function processEvidence(evidenceId: number, jobId: string) {
         try {
           db.insert(evidenceEntities).values({ evidenceId, entityId }).run();
         } catch {
-          // Already linked — ignore unique constraint violation
+          // Already linked
         }
       }
     }
+    console.log(
+      `[worker] Saved ${seenEntityIds.size} entities for evidence ${evidenceId}`,
+    );
+  } catch (entErr: any) {
+    console.error(`[worker] Entity stage failed:`, entErr);
+  }
 
-    await updateJob(jobId, { stage: "facts", progress: 45 });
-
-    // Replace old facts
+  // ─── STAGE: facts ───
+  try {
+    updateJob(jobId, { stage: "facts", progress: 45 });
     db.delete(facts).where(eq(facts.evidenceId, evidenceId)).run();
-    for (const f of extraction.facts || []) {
+    for (const claim of extraction.claims || []) {
       db.insert(facts)
         .values({
           evidenceId,
-          subject: f.subject,
-          predicate: f.predicate,
-          object: f.object,
-          confidence: f.confidence ?? 0.5,
-          temporalInfo: f.temporalInfo ? JSON.stringify(f.temporalInfo) : null,
+          subject: claim.subject || "Unknown",
+          predicate: "claims",
+          object: claim.claim,
+          confidence: claim.confidence ?? 0.5,
           createdAt: new Date().toISOString(),
         })
         .run();
     }
+    console.log(
+      `[worker] Saved ${extraction.claims?.length || 0} facts for evidence ${evidenceId}`,
+    );
+  } catch (factErr: any) {
+    console.error(`[worker] Facts stage failed:`, factErr);
+  }
 
-    await updateJob(jobId, { stage: "timeline", progress: 55 });
-
-    // Replace old timeline events
+  // ─── STAGE: timeline ───
+  try {
+    updateJob(jobId, { stage: "timeline", progress: 55 });
     db.delete(timelineEvents)
       .where(eq(timelineEvents.evidenceId, evidenceId))
       .run();
-    for (const evt of extraction.timeline || []) {
+    for (const evt of extraction.events || []) {
+      const evtEntityIds = (evt.entityNames || [])
+        .map((name: string) => entityNameToId.get(name))
+        .filter((id: number | undefined): id is number => id !== undefined);
+
       db.insert(timelineEvents)
         .values({
+          date: evt.date || new Date().toISOString().split("T")[0],
+          title: evt.title || "Event",
+          description: evt.description || "",
           evidenceId,
-          date: evt.date,
-          event: evt.event,
-          entityNames: evt.entityNames ? JSON.stringify(evt.entityNames) : null,
+          entityIds: JSON.stringify(evtEntityIds),
+          createdBy: userId,
           createdAt: new Date().toISOString(),
         })
         .run();
     }
+    console.log(
+      `[worker] Saved ${extraction.events?.length || 0} timeline events for evidence ${evidenceId}`,
+    );
+  } catch (tlErr: any) {
+    console.error(`[worker] Timeline stage failed:`, tlErr);
+  }
 
-    await updateJob(jobId, { stage: "relationships", progress: 65 });
-
-    // Replace old relationships for this evidence
+  // ─── STAGE: relationships ───
+  try {
+    updateJob(jobId, { stage: "relationships", progress: 65 });
     db.delete(relationships)
       .where(eq(relationships.evidenceIds, JSON.stringify([evidenceId])))
       .run();
     for (const rel of extraction.relationships || []) {
+      const sourceId = entityNameToId.get(rel.source);
+      const targetId = entityNameToId.get(rel.target);
+      if (!sourceId || !targetId) continue;
+
       db.insert(relationships)
         .values({
-          sourceEntityId: rel.sourceEntityId,
-          targetEntityId: rel.targetEntityId,
+          sourceId,
+          targetId,
           type: rel.type,
+          confidence: 0.5,
           evidenceIds: JSON.stringify([evidenceId]),
-          metadata: JSON.stringify(rel.metadata || {}),
+          createdBy: userId,
           createdAt: new Date().toISOString(),
         })
         .run();
     }
+    console.log(
+      `[worker] Saved ${extraction.relationships?.length || 0} relationships for evidence ${evidenceId}`,
+    );
+  } catch (relErr: any) {
+    console.error(`[worker] Relationships stage failed:`, relErr);
+  }
 
-    await updateJob(jobId, { stage: "embeddings", progress: 75 });
-
-    // Generate embedding
-    try {
-      const embedding = await generateEmbeddings(text);
-      db.update(evidence)
-        .set({ embedding: JSON.stringify(embedding) })
-        .where(eq(evidence.id, evidenceId))
-        .run();
-    } catch (e) {
-      console.warn("[worker] Embedding failed, continuing:", e);
-    }
-
-    await updateJob(jobId, { stage: "connections", progress: 85 });
-
-    // Clean up old connections using OR (not AND)
+  // ─── STAGE: connections ───
+  try {
+    updateJob(jobId, { stage: "connections", progress: 85 });
     db.delete(evidenceConnections)
       .where(
         or(
@@ -270,15 +336,26 @@ export async function processEvidence(evidenceId: number, jobId: string) {
       )
       .run();
 
-    // Build graph and compute connection signals
     const allEvidence = db.select().from(evidence).all();
-    const graph = buildEvidenceGraph(allEvidence);
-    const signals = computeSignals(graph, evidenceId);
+    const graph = await buildGraph(allEvidence);
+    const allSignals = computeSignals();
+    const signals = allSignals.filter(
+      (s: any) => s.evidenceIdA === evidenceId || s.evidenceIdB === evidenceId,
+    );
 
     for (const signal of signals) {
-      const a = Math.min(evidenceId, signal.targetId);
-      const b = Math.max(evidenceId, signal.targetId);
-
+      const a = Math.min(
+        evidenceId,
+        signal.evidenceIdA === evidenceId
+          ? signal.evidenceIdB
+          : signal.evidenceIdA,
+      );
+      const b = Math.max(
+        evidenceId,
+        signal.evidenceIdA === evidenceId
+          ? signal.evidenceIdB
+          : signal.evidenceIdA,
+      );
       db.insert(evidenceConnections)
         .values({
           evidenceIdA: a,
@@ -290,33 +367,38 @@ export async function processEvidence(evidenceId: number, jobId: string) {
         })
         .run();
     }
-
-    await updateJob(jobId, { stage: "clusters", progress: 92 });
-
-    // Detect clusters
-    const clusters = detectClusters(graph);
-    for (const cluster of clusters) {
-      // Cluster persistence handled by graph module or add here if needed
-    }
-
-    await updateJob(jobId, { stage: "narratives", progress: 96 });
-
-    // Hidden paths & contradictions
-    findHiddenPaths(graph);
-    detectContradictions(graph);
-
-    await updateJob(jobId, {
-      stage: "complete",
-      progress: 100,
-      status: "completed",
-    });
-  } catch (error: any) {
-    console.error(`[worker] Failed evidence ${evidenceId}:`, error);
-    await updateJob(jobId, {
-      stage: "error",
-      status: "failed",
-      error: error.message || String(error),
-    });
-    throw error;
+    console.log(
+      `[worker] Computed ${signals.length} connection signals for evidence ${evidenceId}`,
+    );
+  } catch (connErr: any) {
+    console.error(`[worker] Connections stage failed:`, connErr);
   }
+
+  // ─── STAGE: clusters ───
+  try {
+    updateJob(jobId, { stage: "clusters", progress: 92 });
+    findClusters();
+  } catch (clErr: any) {
+    console.error(`[worker] Cluster stage failed:`, clErr);
+  }
+
+  // ─── STAGE: narratives ───
+  try {
+    updateJob(jobId, { stage: "narratives", progress: 96 });
+    const allEvidence = db.select().from(evidence).all();
+    const graph = await buildGraph(allEvidence);
+    const clusters = findClusters();
+    findHiddenPaths();
+    findContradictions();
+    detectNarratives(graph, clusters);
+  } catch (narErr: any) {
+    console.error(`[worker] Narrative stage failed:`, narErr);
+  }
+
+  updateJob(jobId, {
+    stage: "complete",
+    progress: 100,
+    status: "completed",
+  });
+  console.log(`[worker] Job ${jobId} completed for evidence ${evidenceId}`);
 }
