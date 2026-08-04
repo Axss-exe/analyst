@@ -79,14 +79,15 @@ export async function processEvidence(
   }
   const item = rows[0];
 
-  const text = item.summary || "";
+  // FIX: Read content first, fall back to summary
+  const text = item.content || item.summary || "";
   console.log(
-    `[worker] Evidence ${evidenceId} summary length: ${text.length} chars`,
+    `[worker] Evidence ${evidenceId} text length: ${text.length} chars (content: ${item.content?.length || 0}, summary: ${item.summary?.length || 0})`,
   );
 
   if (!text.trim()) {
     console.log(
-      `[worker] Evidence ${evidenceId} has no summary, skipping extraction`,
+      `[worker] Evidence ${evidenceId} has no text, skipping extraction`,
     );
     updateJob(jobId, {
       stage: "complete",

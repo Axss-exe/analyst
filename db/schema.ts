@@ -30,6 +30,7 @@ export const evidence = sqliteTable(
     id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
     title: text("title").notNull(),
     summary: text("summary").notNull(),
+    content: text("content"),
     source: text("source").notNull(),
     sourceType: text("source_type").notNull(),
     publicationDate: text("publication_date"),
@@ -47,10 +48,10 @@ export const evidence = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (t) => [
-    index("evidence_created_by_idx").on(t.createdBy),
-    index("evidence_tags_idx").on(t.tags),
-  ],
+  (t) => ({
+    evidenceCreatedByIdx: index("evidence_created_by_idx").on(t.createdBy),
+    evidenceTagsIdx: index("evidence_tags_idx").on(t.tags),
+  }),
 );
 
 export const stories = sqliteTable(
@@ -72,10 +73,10 @@ export const stories = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (t) => [
-    index("stories_status_idx").on(t.status),
-    index("stories_created_by_idx").on(t.createdBy),
-  ],
+  (t) => ({
+    storiesStatusIdx: index("stories_status_idx").on(t.status),
+    storiesCreatedByIdx: index("stories_created_by_idx").on(t.createdBy),
+  }),
 );
 
 export const storyEvidence = sqliteTable(
@@ -94,11 +95,16 @@ export const storyEvidence = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (t) => [
-    uniqueIndex("story_evidence_unique_idx").on(t.storyId, t.evidenceId),
-    index("story_evidence_story_idx").on(t.storyId),
-    index("story_evidence_evidence_idx").on(t.evidenceId),
-  ],
+  (t) => ({
+    storyEvidenceUniqueIdx: uniqueIndex("story_evidence_unique_idx").on(
+      t.storyId,
+      t.evidenceId,
+    ),
+    storyEvidenceStoryIdx: index("story_evidence_story_idx").on(t.storyId),
+    storyEvidenceEvidenceIdx: index("story_evidence_evidence_idx").on(
+      t.evidenceId,
+    ),
+  }),
 );
 
 export const entities = sqliteTable(
@@ -116,10 +122,10 @@ export const entities = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (t) => [
-    index("entities_type_idx").on(t.type),
-    index("entities_name_idx").on(t.name),
-  ],
+  (t) => ({
+    entitiesTypeIdx: index("entities_type_idx").on(t.type),
+    entitiesNameIdx: index("entities_name_idx").on(t.name),
+  }),
 );
 
 export const relationships = sqliteTable(
@@ -142,11 +148,11 @@ export const relationships = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (t) => [
-    index("rel_source_idx").on(t.sourceId),
-    index("rel_target_idx").on(t.targetId),
-    index("rel_type_idx").on(t.type),
-  ],
+  (t) => ({
+    relSourceIdx: index("rel_source_idx").on(t.sourceId),
+    relTargetIdx: index("rel_target_idx").on(t.targetId),
+    relTypeIdx: index("rel_type_idx").on(t.type),
+  }),
 );
 
 export const timelineEvents = sqliteTable(
@@ -170,11 +176,11 @@ export const timelineEvents = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (t) => [
-    index("timeline_date_idx").on(t.date),
-    index("timeline_story_idx").on(t.storyId),
-    index("timeline_evidence_idx").on(t.evidenceId),
-  ],
+  (t) => ({
+    timelineDateIdx: index("timeline_date_idx").on(t.date),
+    timelineStoryIdx: index("timeline_story_idx").on(t.storyId),
+    timelineEvidenceIdx: index("timeline_evidence_idx").on(t.evidenceId),
+  }),
 );
 
 export const researchTasks = sqliteTable(
@@ -202,11 +208,11 @@ export const researchTasks = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (t) => [
-    index("tasks_owner_idx").on(t.ownerId),
-    index("tasks_status_idx").on(t.status),
-    index("tasks_priority_idx").on(t.priority),
-  ],
+  (t) => ({
+    tasksOwnerIdx: index("tasks_owner_idx").on(t.ownerId),
+    tasksStatusIdx: index("tasks_status_idx").on(t.status),
+    tasksPriorityIdx: index("tasks_priority_idx").on(t.priority),
+  }),
 );
 
 export const generatedBriefs = sqliteTable(
@@ -233,10 +239,10 @@ export const generatedBriefs = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (t) => [
-    index("briefs_story_idx").on(t.storyId),
-    index("briefs_created_idx").on(t.createdAt),
-  ],
+  (t) => ({
+    briefsStoryIdx: index("briefs_story_idx").on(t.storyId),
+    briefsCreatedIdx: index("briefs_created_idx").on(t.createdAt),
+  }),
 );
 
 export const templates = sqliteTable("templates", {
@@ -269,10 +275,10 @@ export const notifications = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (t) => [
-    index("notif_user_idx").on(t.userId),
-    index("notif_read_idx").on(t.isRead),
-  ],
+  (t) => ({
+    notifUserIdx: index("notif_user_idx").on(t.userId),
+    notifReadIdx: index("notif_read_idx").on(t.isRead),
+  }),
 );
 
 export const auditLog = sqliteTable(
@@ -291,11 +297,11 @@ export const auditLog = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (t) => [
-    index("audit_user_idx").on(t.userId),
-    index("audit_action_idx").on(t.action),
-    index("audit_target_idx").on(t.targetType, t.targetId),
-  ],
+  (t) => ({
+    auditUserIdx: index("audit_user_idx").on(t.userId),
+    auditActionIdx: index("audit_action_idx").on(t.action),
+    auditTargetIdx: index("audit_target_idx").on(t.targetType, t.targetId),
+  }),
 );
 
 export const settings = sqliteTable("settings", {
@@ -321,9 +327,12 @@ export const evidenceEntities = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (t) => [
-    uniqueIndex("evidence_entity_unique_idx").on(t.evidenceId, t.entityId),
-  ],
+  (t) => ({
+    evidenceEntityUniqueIdx: uniqueIndex("evidence_entity_unique_idx").on(
+      t.evidenceId,
+      t.entityId,
+    ),
+  }),
 );
 
 export const taskEvidence = sqliteTable(
@@ -340,7 +349,12 @@ export const taskEvidence = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (t) => [uniqueIndex("task_evidence_unique_idx").on(t.taskId, t.evidenceId)],
+  (t) => ({
+    taskEvidenceUniqueIdx: uniqueIndex("task_evidence_unique_idx").on(
+      t.taskId,
+      t.evidenceId,
+    ),
+  }),
 );
 
 export const taskEntities = sqliteTable(
@@ -357,7 +371,12 @@ export const taskEntities = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (t) => [uniqueIndex("task_entity_unique_idx").on(t.taskId, t.entityId)],
+  (t) => ({
+    taskEntityUniqueIdx: uniqueIndex("task_entity_unique_idx").on(
+      t.taskId,
+      t.entityId,
+    ),
+  }),
 );
 
 // ==================== ATIS v3: Graph-First Schema ====================
@@ -377,10 +396,10 @@ export const facts = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (t) => [
-    index("facts_evidence_idx").on(t.evidenceId),
-    index("facts_subject_idx").on(t.subject),
-  ],
+  (t) => ({
+    factsEvidenceIdx: index("facts_evidence_idx").on(t.evidenceId),
+    factsSubjectIdx: index("facts_subject_idx").on(t.subject),
+  }),
 );
 
 export const evidenceConnections = sqliteTable(
@@ -401,16 +420,14 @@ export const evidenceConnections = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (t) => [
-    uniqueIndex("evidence_connection_unique_idx").on(
-      t.evidenceIdA,
-      t.evidenceIdB,
-      t.signalType,
-    ),
-    index("evidence_conn_a_idx").on(t.evidenceIdA),
-    index("evidence_conn_b_idx").on(t.evidenceIdB),
-    index("evidence_conn_signal_idx").on(t.signalType),
-  ],
+  (t) => ({
+    evidenceConnectionUniqueIdx: uniqueIndex(
+      "evidence_connection_unique_idx",
+    ).on(t.evidenceIdA, t.evidenceIdB, t.signalType),
+    evidenceConnAIdx: index("evidence_conn_a_idx").on(t.evidenceIdA),
+    evidenceConnBIdx: index("evidence_conn_b_idx").on(t.evidenceIdB),
+    evidenceConnSignalIdx: index("evidence_conn_signal_idx").on(t.signalType),
+  }),
 );
 
 export const graphClusters = sqliteTable(
@@ -434,7 +451,9 @@ export const graphClusters = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (t) => [index("cluster_status_idx").on(t.status)],
+  (t) => ({
+    clusterStatusIdx: index("cluster_status_idx").on(t.status),
+  }),
 );
 
 export const narratives = sqliteTable(
@@ -456,10 +475,12 @@ export const narratives = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (t) => [
-    index("narratives_confidence_idx").on(t.confidence),
-    index("narratives_type_idx").on(t.generationType),
-  ],
+  (t) => ({
+    narrativesConfidenceIdx: index("narratives_confidence_idx").on(
+      t.confidence,
+    ),
+    narrativesTypeIdx: index("narratives_type_idx").on(t.generationType),
+  }),
 );
 
 // ==================== Jobs Table (SQLite-backed) ====================
@@ -485,8 +506,8 @@ export const jobs = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (t) => [
-    index("jobs_status_idx").on(t.status),
-    index("jobs_created_idx").on(t.createdAt),
-  ],
+  (t) => ({
+    jobsStatusIdx: index("jobs_status_idx").on(t.status),
+    jobsCreatedIdx: index("jobs_created_idx").on(t.createdAt),
+  }),
 );

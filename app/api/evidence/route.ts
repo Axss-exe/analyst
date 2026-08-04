@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
       publicationDate,
       confidence,
       tags,
-      content,
+      content, // <-- frontend sends full article text here
     } = body;
 
     if (!title || !source || !sourceType) {
@@ -73,11 +73,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // FIX: If content is provided, use it as summary (schema has no content column)
+    const textContent = content || summary || "";
+
     const result = db
       .insert(evidence)
       .values({
         title,
         summary: summary || "",
+        content: textContent,
         source,
         sourceType,
         publicationDate: publicationDate || null,
@@ -98,8 +102,8 @@ export async function POST(request: NextRequest) {
     });
 
     let jobId: string | undefined;
-    if (content && content.trim().length >= 10) {
-      jobId = enqueueEvidenceJob(result.id, content, user.id);
+    if (textContent && textContent.trim().length >= 10) {
+      jobId = enqueueEvidenceJob(result.id, textContent, user.id);
     }
 
     return NextResponse.json({ evidence: result, jobId });
