@@ -172,7 +172,15 @@ export default function EvidenceDetailPage() {
           <h1 className="text-2xl font-semibold">{ev.title}</h1>
           <div className="mt-2 flex items-center gap-2 flex-wrap">
             <Badge variant="outline">{ev.sourceType}</Badge>
-            <span className="text-sm text-muted-foreground">{ev.source}</span>
+            {/* FIX: Clickable source link */}
+            <a
+              href={ev.source}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-blue-600 hover:underline break-all"
+            >
+              {ev.source}
+            </a>
             {ev.publicationDate && (
               <span className="text-xs text-muted-foreground">
                 {new Date(ev.publicationDate).toLocaleDateString()}

@@ -161,6 +161,10 @@ export async function processEvidence(
     db.update(evidence)
       .set({
         confidence: confidenceScore,
+        summary:
+          !item.summary || item.summary.trim().length < 50
+            ? extraction.summary || item.summary || ""
+            : item.summary,
         aiMetadata: JSON.stringify({
           ...existingMeta,
           extraction,
