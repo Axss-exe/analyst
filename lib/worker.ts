@@ -8,17 +8,9 @@ import {
   timelineEvents,
   relationships,
 } from "@/db/schema";
-import { eq, and, or } from "drizzle-orm";
+import { eq, and, or, inArray } from "drizzle-orm";
 import { extractStructuredFacts } from "@/lib/ai/extraction";
 import { evaluateSourceConfidence } from "@/lib/ai/confidence";
-import {
-  buildGraph,
-  computeSignals,
-  findClusters,
-  findHiddenPaths,
-  findContradictions,
-  detectNarratives,
-} from "@/lib/graph";
 import { updateJob, enqueueJob } from "@/lib/jobs";
 
 export function enqueueEvidenceJob(
@@ -35,8 +27,6 @@ export function enqueueEvidenceJob(
     "timeline",
     "relationships",
     "connections",
-    "clusters",
-    "narratives",
     "complete",
   ]);
 
@@ -79,7 +69,6 @@ export async function processEvidence(
   }
   const item = rows[0];
 
-  // FIX: Read content first, fall back to summary
   const text = item.content || item.summary || "";
   console.log(
     `[worker] Evidence ${evidenceId} text length: ${text.length} chars (content: ${item.content?.length || 0}, summary: ${item.summary?.length || 0})`,
@@ -158,13 +147,17 @@ export async function processEvidence(
         ? JSON.parse(item.aiMetadata)
         : item.aiMetadata || {};
 
+    const currentSummary = item.summary || "";
+    const llmSummary = extraction.summary || "";
+    const newSummary =
+      currentSummary.trim().length < 50 && llmSummary.trim().length > 0
+        ? llmSummary
+        : currentSummary;
+
     db.update(evidence)
       .set({
         confidence: confidenceScore,
-        summary:
-          !item.summary || item.summary.trim().length < 50
-            ? extraction.summary || item.summary || ""
-            : item.summary,
+        summary: newSummary,
         aiMetadata: JSON.stringify({
           ...existingMeta,
           extraction,
@@ -175,7 +168,7 @@ export async function processEvidence(
       .where(eq(evidence.id, evidenceId))
       .run();
     console.log(
-      `[worker] Saved confidence ${confidenceScore} to evidence ${evidenceId}`,
+      `[worker] Saved confidence ${confidenceScore} and summary (${newSummary.length} chars) to evidence ${evidenceId}`,
     );
   } catch (dbErr: any) {
     console.error(`[worker] Failed to save metadata:`, dbErr);
@@ -329,7 +322,7 @@ export async function processEvidence(
     console.error(`[worker] Relationships stage failed:`, relErr);
   }
 
-  // ─── STAGE: connections ───
+  // ─── STAGE: connections (fallback — shared entities) ───
   try {
     updateJob(jobId, { stage: "connections", progress: 85 });
     db.delete(evidenceConnections)
@@ -341,63 +334,54 @@ export async function processEvidence(
       )
       .run();
 
-    const allEvidence = db.select().from(evidence).all();
-    const graph = await buildGraph(allEvidence);
-    const allSignals = computeSignals();
-    const signals = allSignals.filter(
-      (s: any) => s.evidenceIdA === evidenceId || s.evidenceIdB === evidenceId,
-    );
+    // Get entity IDs linked to this evidence
+    const myLinks = db
+      .select({ entityId: evidenceEntities.entityId })
+      .from(evidenceEntities)
+      .where(eq(evidenceEntities.evidenceId, evidenceId))
+      .all();
+    const myEntityIds = myLinks.map((l) => l.entityId);
 
-    for (const signal of signals) {
-      const a = Math.min(
-        evidenceId,
-        signal.evidenceIdA === evidenceId
-          ? signal.evidenceIdB
-          : signal.evidenceIdA,
-      );
-      const b = Math.max(
-        evidenceId,
-        signal.evidenceIdA === evidenceId
-          ? signal.evidenceIdB
-          : signal.evidenceIdA,
-      );
-      db.insert(evidenceConnections)
-        .values({
-          evidenceIdA: a,
-          evidenceIdB: b,
-          signalType: signal.type,
-          strength: signal.strength,
-          reason: signal.reason,
-          createdAt: new Date().toISOString(),
+    if (myEntityIds.length > 0) {
+      // Find other evidence that shares any of these entities
+      const otherLinks = db
+        .select({
+          evidenceId: evidenceEntities.evidenceId,
+          entityId: evidenceEntities.entityId,
         })
-        .run();
+        .from(evidenceEntities)
+        .where(inArray(evidenceEntities.entityId, myEntityIds))
+        .all();
+
+      const shared = new Map<number, number[]>(); // otherEvidenceId -> entityIds
+      for (const link of otherLinks) {
+        if (link.evidenceId === evidenceId) continue;
+        if (!shared.has(link.evidenceId)) shared.set(link.evidenceId, []);
+        shared.get(link.evidenceId)!.push(link.entityId);
+      }
+
+      for (const [otherId, sharedEntities] of shared) {
+        const a = Math.min(evidenceId, otherId);
+        const b = Math.max(evidenceId, otherId);
+        db.insert(evidenceConnections)
+          .values({
+            evidenceIdA: a,
+            evidenceIdB: b,
+            signalType: "shared_entities",
+            strength: Math.min(0.3 + sharedEntities.length * 0.15, 1.0),
+            reason: `Shares ${sharedEntities.length} entity${sharedEntities.length > 1 ? "ies" : "y"}`,
+            createdAt: new Date().toISOString(),
+          })
+          .run();
+      }
+      console.log(
+        `[worker] Created ${shared.size} evidence connections for evidence ${evidenceId}`,
+      );
+    } else {
+      console.log(`[worker] No entities to connect for evidence ${evidenceId}`);
     }
-    console.log(
-      `[worker] Computed ${signals.length} connection signals for evidence ${evidenceId}`,
-    );
   } catch (connErr: any) {
     console.error(`[worker] Connections stage failed:`, connErr);
-  }
-
-  // ─── STAGE: clusters ───
-  try {
-    updateJob(jobId, { stage: "clusters", progress: 92 });
-    findClusters();
-  } catch (clErr: any) {
-    console.error(`[worker] Cluster stage failed:`, clErr);
-  }
-
-  // ─── STAGE: narratives ───
-  try {
-    updateJob(jobId, { stage: "narratives", progress: 96 });
-    const allEvidence = db.select().from(evidence).all();
-    const graph = await buildGraph(allEvidence);
-    const clusters = findClusters();
-    findHiddenPaths();
-    findContradictions();
-    detectNarratives(graph, clusters);
-  } catch (narErr: any) {
-    console.error(`[worker] Narrative stage failed:`, narErr);
   }
 
   updateJob(jobId, {

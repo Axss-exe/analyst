@@ -1,199 +1,48 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   ArrowLeft,
-  BookOpen,
   FileText,
   Users,
   GitBranch,
-  Clock,
-  ClipboardList,
-  Newspaper,
-  Plus,
-  Trash2,
-  Link2,
-  FileDown,
-  Loader2,
+  Calendar,
+  CheckCircle,
 } from "lucide-react";
 
-interface StoryDetail {
-  story: {
-    id: number;
-    title: string;
-    overview: string;
-    status: string;
-    createdAt: string;
-    updatedAt: string;
-  };
-  evidence: Array<any>;
-  timelineEvents: Array<any>;
-  tasks: Array<any>;
-  briefs: Array<any>;
-  entities: Array<any>;
-  relationships: Array<any>;
-}
-
 export default function StoryDetailPage() {
-  const params = useParams();
-  const router = useRouter();
-  const id = params.id as string;
-  const [data, setData] = useState<StoryDetail | null>(null);
-  const [error, setError] = useState<string>("");
+  const { id } = useParams() as { id: string };
+  const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [genMode, setGenMode] = useState("full");
-  const [genLoading, setGenLoading] = useState(false);
-  const [allEvidence, setAllEvidence] = useState<any[]>([]);
-  const [selectedEvidence, setSelectedEvidence] = useState<number[]>([]);
-  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    fetchStory();
-    fetchAllEvidence();
+    fetch(`/api/stories/${id}`)
+      .then(async (r) => {
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.error || "Not found");
+        }
+        return r.json();
+      })
+      .then((d) => {
+        setData(d);
+        setLoading(false);
+      })
+      .catch((e) => {
+        setError(e.message || "Failed to load story");
+        setLoading(false);
+      });
   }, [id]);
 
-  const fetchStory = async () => {
-    try {
-      setError("");
-      const res = await fetch(`/api/stories/${id}`);
-      const d = await res.json();
-
-      if (!res.ok || d.error) {
-        setError(d.error || "Failed to load story");
-        setData(null);
-        setLoading(false);
-        return;
-      }
-
-      // Validate response shape
-      if (!d.story || typeof d.story !== "object") {
-        setError("Invalid story data received");
-        setData(null);
-        setLoading(false);
-        return;
-      }
-
-      setData({
-        story: d.story,
-        evidence: d.evidence || [],
-        timelineEvents: d.timelineEvents || [],
-        tasks: d.tasks || [],
-        briefs: d.briefs || [],
-        entities: d.entities || [],
-        relationships: d.relationships || [],
-      });
-      setLoading(false);
-    } catch (e) {
-      setError("Network error loading story");
-      setData(null);
-      setLoading(false);
-    }
-  };
-
-  const fetchAllEvidence = async () => {
-    try {
-      const res = await fetch("/api/evidence?limit=500");
-      const d = await res.json();
-      if (res.ok && d.evidence) {
-        setAllEvidence(d.evidence);
-      }
-    } catch {
-      // silent
-    }
-  };
-
-  const handleGenerateBrief = async () => {
-    setGenLoading(true);
-    try {
-      const res = await fetch("/api/briefs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          storyId: parseInt(id),
-          generationMode: genMode,
-          selectedEvidenceIds:
-            genMode === "partial" ? selectedEvidence : undefined,
-        }),
-      });
-      if (res.ok) {
-        fetchStory();
-      } else {
-        const err = await res.json().catch(() => ({}));
-        alert(err.error || "Failed to generate brief");
-      }
-    } catch {
-      alert("Network error generating brief");
-    }
-    setGenLoading(false);
-  };
-
-  const handleLinkEvidence = async (evidenceId: number) => {
-    try {
-      const res = await fetch(`/api/stories/${id}/evidence`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          evidenceId,
-          confidence: 0.8,
-          relationshipType: "manual",
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        alert(err.error || "Failed to link evidence");
-      }
-    } catch {
-      alert("Network error linking evidence");
-    }
-    setLinkDialogOpen(false);
-    fetchStory();
-  };
-
-  const handleUnlinkEvidence = async (evidenceId: number) => {
-    if (!confirm("Remove this evidence from the story?")) return;
-    try {
-      await fetch(`/api/stories/${id}/evidence?evidenceId=${evidenceId}`, {
-        method: "DELETE",
-      });
-      fetchStory();
-    } catch {
-      alert("Failed to unlink evidence");
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!confirm("Delete this story? This cannot be undone.")) return;
-    try {
-      const res = await fetch(`/api/stories/${id}`, { method: "DELETE" });
-      if (res.ok) router.push("/stories");
-      else alert("Failed to delete story");
-    } catch {
-      alert("Network error deleting story");
-    }
-  };
-
-  if (loading) {
+  if (loading)
     return (
       <AppShell>
         <div className="flex h-96 items-center justify-center">
@@ -201,14 +50,16 @@ export default function StoryDetailPage() {
         </div>
       </AppShell>
     );
-  }
 
-  if (error || !data) {
+  if (error || !data || !data.story)
     return (
       <AppShell>
-        <div className="flex h-96 flex-col items-center justify-center gap-4">
-          <p className="text-muted-foreground">{error || "Story not found"}</p>
-          <Link href="/stories">
+        <div className="mx-auto max-w-4xl pt-12 text-center">
+          <h1 className="text-xl font-semibold">Story not found</h1>
+          <p className="mt-2 text-muted-foreground">
+            {error || "This story may have been deleted or not yet processed."}
+          </p>
+          <Link href="/stories" className="mt-6 inline-block">
             <Button variant="outline">
               <ArrowLeft className="mr-1 h-4 w-4" /> Back to Stories
             </Button>
@@ -216,284 +67,110 @@ export default function StoryDetailPage() {
         </div>
       </AppShell>
     );
-  }
 
   const story = data.story;
-  const linkedEvidenceIds = new Set(data.evidence.map((e: any) => e.id));
-  const availableEvidence = allEvidence.filter(
-    (e) => !linkedEvidenceIds.has(e.id),
-  );
+  const evidenceList = data.linkedEvidence || [];
+  const entityList = data.linkedEntities || [];
+  const timelineList = data.timelineEvents || [];
+  const relationshipList = data.relationships || [];
+  const taskList = data.researchTasks || [];
+  const briefList = data.generatedBriefs || [];
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-5xl space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Link href="/stories">
-              <Button variant="ghost" size="sm">
-                <ArrowLeft className="mr-1 h-4 w-4" /> Back
-              </Button>
-            </Link>
-          </div>
-          <div className="flex gap-2">
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button size="sm" variant="outline">
-                  <FileDown className="mr-1 h-4 w-4" /> Generate Brief
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Generate Intelligence Brief</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">
-                      Generation Mode
-                    </label>
-                    <Select value={genMode} onValueChange={setGenMode}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="full">
-                          Full Story Snapshot
-                        </SelectItem>
-                        <SelectItem value="partial">
-                          Partial (Select Evidence)
-                        </SelectItem>
-                        <SelectItem value="since_last">
-                          Evidence Since Last Brief
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {genMode === "partial" && (
-                    <div className="max-h-48 overflow-y-auto space-y-1 rounded-md border p-2">
-                      {data.evidence.map((ev: any) => (
-                        <label
-                          key={ev.id}
-                          className="flex items-center gap-2 text-sm"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedEvidence.includes(ev.id)}
-                            onChange={(e) => {
-                              if (e.target.checked)
-                                setSelectedEvidence((prev) => [...prev, ev.id]);
-                              else
-                                setSelectedEvidence((prev) =>
-                                  prev.filter((id) => id !== ev.id),
-                                );
-                            }}
-                            className="rounded border"
-                          />
-                          <span className="truncate">{ev.title}</span>
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                  <Button
-                    onClick={handleGenerateBrief}
-                    disabled={genLoading}
-                    className="w-full"
-                  >
-                    {genLoading ? (
-                      <>
-                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />{" "}
-                        Generating...
-                      </>
-                    ) : (
-                      "Generate Brief"
-                    )}
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-            <Button size="sm" variant="destructive" onClick={handleDelete}>
-              <Trash2 className="mr-1 h-4 w-4" /> Delete
+      <div className="mx-auto max-w-4xl space-y-6">
+        <div className="flex items-center gap-4">
+          <Link href="/stories">
+            <Button variant="ghost" size="sm">
+              <ArrowLeft className="mr-1 h-4 w-4" /> Back
             </Button>
-          </div>
+          </Link>
+          <Badge variant="outline" className="capitalize">
+            {story.status || "active"}
+          </Badge>
         </div>
 
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
             {story.title}
           </h1>
-          <div className="mt-2 flex items-center gap-2">
-            <Badge
-              variant={story.status === "active" ? "default" : "secondary"}
-              className="capitalize"
-            >
-              {story.status}
-            </Badge>
-            <span className="text-xs text-muted-foreground">
-              Updated {new Date(story.updatedAt).toLocaleDateString()}
-            </span>
-          </div>
-          <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
-            {story.overview}
-          </p>
+          {story.overview ? (
+            <p className="mt-2 text-muted-foreground">{story.overview}</p>
+          ) : null}
         </div>
 
         <Tabs defaultValue="evidence">
           <TabsList>
             <TabsTrigger value="evidence">
               <FileText className="mr-1 h-3 w-3" /> Evidence (
-              {data.evidence.length})
-            </TabsTrigger>
-            <TabsTrigger value="timeline">
-              <Clock className="mr-1 h-3 w-3" /> Timeline (
-              {data.timelineEvents.length})
+              {evidenceList.length})
             </TabsTrigger>
             <TabsTrigger value="entities">
-              <Users className="mr-1 h-3 w-3" /> Entities (
-              {data.entities.length})
+              <Users className="mr-1 h-3 w-3" /> Entities ({entityList.length})
             </TabsTrigger>
-            <TabsTrigger value="graph">
-              <GitBranch className="mr-1 h-3 w-3" /> Graph
+            <TabsTrigger value="timeline">
+              <Calendar className="mr-1 h-3 w-3" /> Timeline (
+              {timelineList.length})
             </TabsTrigger>
-            <TabsTrigger value="tasks">
-              <ClipboardList className="mr-1 h-3 w-3" /> Tasks (
-              {data.tasks.length})
+            <TabsTrigger value="relationships">
+              <GitBranch className="mr-1 h-3 w-3" /> Relations (
+              {relationshipList.length})
             </TabsTrigger>
-            <TabsTrigger value="briefs">
-              <Newspaper className="mr-1 h-3 w-3" /> Briefs (
-              {data.briefs.length})
-            </TabsTrigger>
+            {taskList.length > 0 && (
+              <TabsTrigger value="tasks">
+                <CheckCircle className="mr-1 h-3 w-3" /> Tasks (
+                {taskList.length})
+              </TabsTrigger>
+            )}
           </TabsList>
 
-          <TabsContent value="evidence" className="mt-4 space-y-4">
-            <div className="flex justify-end">
-              <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm">
-                    <Link2 className="mr-1 h-4 w-4" /> Link Evidence
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Link Evidence to Story</DialogTitle>
-                  </DialogHeader>
-                  <div className="max-h-80 overflow-y-auto space-y-1">
-                    {availableEvidence.length === 0 ? (
-                      <p className="text-sm text-muted-foreground py-4 text-center">
-                        All evidence is already linked
-                      </p>
-                    ) : (
-                      availableEvidence.map((ev) => (
-                        <button
-                          key={ev.id}
-                          onClick={() => handleLinkEvidence(ev.id)}
-                          className="w-full text-left rounded-md p-2 text-sm hover:bg-accent transition-colors"
-                        >
-                          <p className="font-medium">{ev.title}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {ev.source}
-                          </p>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                </DialogContent>
-              </Dialog>
-            </div>
-
-            {data.evidence.length === 0 ? (
+          {/* Evidence Tab */}
+          <TabsContent value="evidence" className="mt-4">
+            {evidenceList.length === 0 ? (
               <Card>
                 <CardContent className="py-8 text-center text-muted-foreground">
-                  No evidence linked yet
+                  No evidence linked to this story
                 </CardContent>
               </Card>
             ) : (
               <div className="space-y-2">
-                {data.evidence.map((ev: any) => (
-                  <Card key={ev.id}>
-                    <CardContent className="flex items-center justify-between py-3">
-                      <div className="min-w-0">
-                        <Link
-                          href={`/evidence/${ev.id}`}
-                          className="text-sm font-medium hover:text-primary"
-                        >
-                          {ev.title}
-                        </Link>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {ev.source} | Confidence:{" "}
-                          {(ev.junction?.confidence * 100)?.toFixed(0) || "N/A"}
-                          %
-                        </p>
-                      </div>
-                      <div className="flex gap-1">
-                        <Link href={`/evidence/${ev.id}`}>
-                          <Button variant="ghost" size="sm">
-                            View
-                          </Button>
-                        </Link>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleUnlinkEvidence(ev.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-muted-foreground" />
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="timeline" className="mt-4">
-            {data.timelineEvents.length === 0 ? (
-              <Card>
-                <CardContent className="py-8 text-center text-muted-foreground">
-                  No timeline events
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="relative border-l border-border ml-4 space-y-4">
-                {data.timelineEvents.map((evt: any) => (
-                  <div key={evt.id} className="relative pl-6">
-                    <div className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full bg-primary" />
-                    <Card>
+                {evidenceList.map((ev: any) => (
+                  <Link key={ev.id} href={`/evidence/${ev.id}`}>
+                    <Card className="transition-colors hover:bg-accent">
                       <CardContent className="py-3">
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(evt.date).toLocaleDateString()}
-                        </span>
-                        <p className="text-sm font-medium mt-0.5">
-                          {evt.title}
+                        <p className="text-sm font-medium">
+                          {ev.title || "Untitled"}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {evt.description}
+                          {ev.source}
                         </p>
                       </CardContent>
                     </Card>
-                  </div>
+                  </Link>
                 ))}
               </div>
             )}
           </TabsContent>
 
+          {/* Entities Tab */}
           <TabsContent value="entities" className="mt-4">
-            {data.entities.length === 0 ? (
+            {entityList.length === 0 ? (
               <Card>
                 <CardContent className="py-8 text-center text-muted-foreground">
-                  No entities linked
+                  No entities found
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                {data.entities.map((ent: any) => (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {entityList.map((ent: any) => (
                   <Link key={ent.id} href={`/entities/${ent.id}`}>
                     <Card className="transition-colors hover:bg-accent">
                       <CardContent className="py-3">
-                        <p className="text-sm font-medium">{ent.name}</p>
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] capitalize mt-1"
-                        >
-                          {ent.type}
+                        <p className="text-sm font-medium">
+                          {ent.name || "Unknown"}
+                        </p>
+                        <Badge variant="outline" className="mt-1 text-[10px]">
+                          {ent.type || "unknown"}
                         </Badge>
                       </CardContent>
                     </Card>
@@ -503,90 +180,101 @@ export default function StoryDetailPage() {
             )}
           </TabsContent>
 
-          <TabsContent value="graph" className="mt-4">
-            <Card>
-              <CardContent className="py-8 text-center">
-                <GitBranch className="h-12 w-12 text-muted-foreground opacity-40 mx-auto" />
-                <p className="mt-2 text-muted-foreground">
-                  Relationship graph for this story
-                </p>
-                <Link href={`/graph?storyId=${id}`}>
-                  <Button className="mt-4" variant="outline">
-                    Open in Graph View
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="tasks" className="mt-4">
-            {data.tasks.length === 0 ? (
+          {/* Timeline Tab */}
+          <TabsContent value="timeline" className="mt-4">
+            {timelineList.length === 0 ? (
               <Card>
                 <CardContent className="py-8 text-center text-muted-foreground">
-                  No research tasks
+                  No timeline events
                 </CardContent>
               </Card>
             ) : (
-              <div className="space-y-2">
-                {data.tasks.map((task: any) => (
-                  <Link key={task.id} href={`/tasks/${task.id}`}>
-                    <Card className="transition-colors hover:bg-accent">
-                      <CardContent className="flex items-center justify-between py-3">
-                        <div>
-                          <p className="text-sm font-medium">
-                            {task.objective}
-                          </p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <Badge
-                              variant="outline"
-                              className="text-[10px] capitalize"
-                            >
-                              {task.status}
-                            </Badge>
-                            <Badge variant="secondary" className="text-[10px]">
-                              {task.priority}
-                            </Badge>
-                          </div>
-                        </div>
-                        <ArrowLeft className="h-4 w-4 rotate-180 text-muted-foreground" />
-                      </CardContent>
-                    </Card>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="briefs" className="mt-4">
-            {data.briefs.length === 0 ? (
-              <Card>
-                <CardContent className="py-8 text-center text-muted-foreground">
-                  No briefs generated yet
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-2">
-                {data.briefs.map((brief: any) => (
-                  <Link key={brief.id} href={`/briefs/${brief.id}`}>
-                    <Card className="transition-colors hover:bg-accent">
-                      <CardContent className="flex items-center justify-between py-3">
-                        <div>
-                          <p className="text-sm font-medium">
-                            {brief.headline}
-                          </p>
+              <div className="relative ml-4 space-y-4 border-l border-border">
+                {timelineList.map((evt: any) => (
+                  <div key={evt.id} className="relative pl-6">
+                    <div className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full bg-primary" />
+                    <Card>
+                      <CardContent className="py-3">
+                        <span className="text-xs text-muted-foreground">
+                          {evt.date
+                            ? new Date(evt.date).toLocaleDateString()
+                            : "No date"}
+                        </span>
+                        <p className="mt-0.5 text-sm font-medium">
+                          {evt.title || evt.event || "Event"}
+                        </p>
+                        {evt.description ? (
                           <p className="text-xs text-muted-foreground">
-                            v{brief.version} | {brief.generationMode} |{" "}
-                            {new Date(brief.createdAt).toLocaleDateString()}
+                            {evt.description}
                           </p>
-                        </div>
-                        <ArrowLeft className="h-4 w-4 rotate-180 text-muted-foreground" />
+                        ) : null}
                       </CardContent>
                     </Card>
-                  </Link>
+                  </div>
                 ))}
               </div>
             )}
           </TabsContent>
+
+          {/* Relationships Tab */}
+          <TabsContent value="relationships" className="mt-4">
+            {relationshipList.length === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  No relationships found
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-2">
+                {relationshipList.map((rel: any) => (
+                  <Card key={rel.id}>
+                    <CardContent className="flex items-center gap-3 py-3">
+                      <span className="text-sm font-medium">
+                        {rel.sourceId ? `Entity #${rel.sourceId}` : "?"}
+                      </span>
+                      <Badge variant="outline" className="text-[10px]">
+                        {rel.type || "related"}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">→</span>
+                      <span className="text-sm font-medium">
+                        {rel.targetId ? `Entity #${rel.targetId}` : "?"}
+                      </span>
+                      {typeof rel.confidence === "number" ? (
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          {(rel.confidence * 100).toFixed(0)}%
+                        </span>
+                      ) : null}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          {/* Tasks Tab */}
+          {taskList.length > 0 && (
+            <TabsContent value="tasks" className="mt-4">
+              <div className="space-y-2">
+                {taskList.map((task: any) => (
+                  <Card key={task.id}>
+                    <CardContent className="py-3">
+                      <p className="text-sm font-medium">
+                        {task.title || "Task"}
+                      </p>
+                      <Badge
+                        variant={
+                          task.status === "completed" ? "default" : "outline"
+                        }
+                        className="mt-1 text-[10px]"
+                      >
+                        {task.status || "pending"}
+                      </Badge>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </AppShell>

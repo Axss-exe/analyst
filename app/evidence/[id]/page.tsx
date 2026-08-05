@@ -131,6 +131,8 @@ export default function EvidenceDetailPage() {
   const meta = getMetadata(ev.aiMetadata);
 
   const getRelationBadge = (types: string[]) => {
+    if (!types || !Array.isArray(types))
+      return <Badge variant="outline">Related</Badge>;
     if (types.includes("same_story"))
       return (
         <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">

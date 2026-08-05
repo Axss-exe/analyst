@@ -33,7 +33,9 @@ export default function EntityDetailPage() {
         </div>
       </AppShell>
     );
-  if (!data)
+
+  // FIX: Guard against missing data OR missing data.entity
+  if (!data || !data.entity)
     return (
       <AppShell>
         <div className="flex h-96 items-center justify-center text-muted-foreground">
@@ -58,6 +60,11 @@ export default function EntityDetailPage() {
     }
   })();
 
+  // FIX: Default all arrays to empty if missing
+  const evidenceList = data.evidence || [];
+  const relationshipsList = data.relationships || [];
+  const timelineList = data.timelineEvents || [];
+
   return (
     <AppShell>
       <div className="mx-auto max-w-4xl space-y-6">
@@ -80,21 +87,21 @@ export default function EntityDetailPage() {
           <TabsList>
             <TabsTrigger value="evidence">
               <FileText className="mr-1 h-3 w-3" /> Evidence (
-              {data.evidence.length})
+              {evidenceList.length})
             </TabsTrigger>
             <TabsTrigger value="relationships">
               <GitBranch className="mr-1 h-3 w-3" /> Relationships (
-              {data.relationships.length})
+              {relationshipsList.length})
             </TabsTrigger>
             <TabsTrigger value="timeline">
               <Calendar className="mr-1 h-3 w-3" /> Timeline (
-              {data.timelineEvents.length})
+              {timelineList.length})
             </TabsTrigger>
             <TabsTrigger value="metadata">Metadata</TabsTrigger>
           </TabsList>
 
           <TabsContent value="evidence" className="mt-4">
-            {data.evidence.length === 0 ? (
+            {evidenceList.length === 0 ? (
               <Card>
                 <CardContent className="py-8 text-center text-muted-foreground">
                   No linked evidence
@@ -102,7 +109,7 @@ export default function EntityDetailPage() {
               </Card>
             ) : (
               <div className="space-y-2">
-                {data.evidence.map((ev: any) => (
+                {evidenceList.map((ev: any) => (
                   <Link key={ev.id} href={`/evidence/${ev.id}`}>
                     <Card className="transition-colors hover:bg-accent">
                       <CardContent className="py-3">
@@ -119,7 +126,7 @@ export default function EntityDetailPage() {
           </TabsContent>
 
           <TabsContent value="relationships" className="mt-4">
-            {data.relationships.length === 0 ? (
+            {relationshipsList.length === 0 ? (
               <Card>
                 <CardContent className="py-8 text-center text-muted-foreground">
                   No relationships
@@ -127,7 +134,7 @@ export default function EntityDetailPage() {
               </Card>
             ) : (
               <div className="space-y-2">
-                {data.relationships.map((rel: any) => (
+                {relationshipsList.map((rel: any) => (
                   <Card key={rel.id}>
                     <CardContent className="flex items-center gap-3 py-3">
                       <Link
@@ -157,7 +164,7 @@ export default function EntityDetailPage() {
           </TabsContent>
 
           <TabsContent value="timeline" className="mt-4">
-            {data.timelineEvents.length === 0 ? (
+            {timelineList.length === 0 ? (
               <Card>
                 <CardContent className="py-8 text-center text-muted-foreground">
                   No timeline events
@@ -165,7 +172,7 @@ export default function EntityDetailPage() {
               </Card>
             ) : (
               <div className="relative border-l border-border ml-4 space-y-4">
-                {data.timelineEvents.map((evt: any) => (
+                {timelineList.map((evt: any) => (
                   <div key={evt.id} className="relative pl-6">
                     <div className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full bg-primary" />
                     <Card>
