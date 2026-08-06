@@ -7,10 +7,19 @@ import {
   evidenceConnections,
   timelineEvents,
   relationships,
+  narratives,
+  graphClusters,
 } from "@/db/schema";
 import { eq, and, or, inArray } from "drizzle-orm";
 import { extractStructuredFacts } from "@/lib/ai/extraction";
 import { evaluateSourceConfidence } from "@/lib/ai/confidence";
+import {
+  buildGraph,
+  findClusters,
+  findHiddenPaths,
+  findContradictions,
+  detectNarratives,
+} from "@/lib/graph";
 import { updateJob, enqueueJob } from "@/lib/jobs";
 
 export function enqueueEvidenceJob(
@@ -27,6 +36,8 @@ export function enqueueEvidenceJob(
     "timeline",
     "relationships",
     "connections",
+    "clusters",
+    "narratives",
     "complete",
   ]);
 
@@ -334,7 +345,6 @@ export async function processEvidence(
       )
       .run();
 
-    // Get entity IDs linked to this evidence
     const myLinks = db
       .select({ entityId: evidenceEntities.entityId })
       .from(evidenceEntities)
@@ -343,7 +353,6 @@ export async function processEvidence(
     const myEntityIds = myLinks.map((l) => l.entityId);
 
     if (myEntityIds.length > 0) {
-      // Find other evidence that shares any of these entities
       const otherLinks = db
         .select({
           evidenceId: evidenceEntities.evidenceId,
@@ -353,7 +362,7 @@ export async function processEvidence(
         .where(inArray(evidenceEntities.entityId, myEntityIds))
         .all();
 
-      const shared = new Map<number, number[]>(); // otherEvidenceId -> entityIds
+      const shared = new Map<number, number[]>();
       for (const link of otherLinks) {
         if (link.evidenceId === evidenceId) continue;
         if (!shared.has(link.evidenceId)) shared.set(link.evidenceId, []);
@@ -377,11 +386,65 @@ export async function processEvidence(
       console.log(
         `[worker] Created ${shared.size} evidence connections for evidence ${evidenceId}`,
       );
-    } else {
-      console.log(`[worker] No entities to connect for evidence ${evidenceId}`);
     }
   } catch (connErr: any) {
     console.error(`[worker] Connections stage failed:`, connErr);
+  }
+
+  // ─── STAGE: clusters ───
+  try {
+    updateJob(jobId, { stage: "clusters", progress: 92 });
+    const allEvidence = db.select().from(evidence).all();
+    const graph = await buildGraph(allEvidence);
+    findClusters(graph);
+  } catch (clErr: any) {
+    console.error(`[worker] Cluster stage failed:`, clErr);
+  }
+
+  // ─── STAGE: narratives + backfill ───
+  try {
+    updateJob(jobId, { stage: "narratives", progress: 96 });
+    const allEvidence = db.select().from(evidence).all();
+    const graph = await buildGraph(allEvidence);
+    const clusters = findClusters(graph);
+    findHiddenPaths(graph);
+    findContradictions(graph);
+    detectNarratives(graph, clusters);
+
+    // BACKFILL: Ensure narratives have evidenceIds populated from clusters
+    const allNarratives = db.select().from(narratives).all();
+    for (const nar of allNarratives) {
+      if (!nar.evidenceIds && nar.clusterIds) {
+        try {
+          const cIds: number[] = JSON.parse(nar.clusterIds);
+          const allEids: number[] = [];
+          for (const cid of cIds) {
+            const [cluster] = db
+              .select()
+              .from(graphClusters)
+              .where(eq(graphClusters.id, cid))
+              .all();
+            if (cluster?.evidenceIds) {
+              allEids.push(...JSON.parse(cluster.evidenceIds));
+            }
+          }
+          const uniqueEids = [...new Set(allEids)];
+          if (uniqueEids.length > 0) {
+            db.update(narratives)
+              .set({ evidenceIds: JSON.stringify(uniqueEids) })
+              .where(eq(narratives.id, nar.id))
+              .run();
+            console.log(
+              `[worker] Backfilled narrative ${nar.id} with ${uniqueEids.length} evidence IDs`,
+            );
+          }
+        } catch (e) {
+          console.warn(`[worker] Could not backfill narrative ${nar.id}:`, e);
+        }
+      }
+    }
+  } catch (narErr: any) {
+    console.error(`[worker] Narrative stage failed:`, narErr);
   }
 
   updateJob(jobId, {

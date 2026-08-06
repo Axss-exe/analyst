@@ -11,6 +11,7 @@ import {
   relationships,
   researchTasks,
   generatedBriefs,
+  graphClusters,
 } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
@@ -21,11 +22,11 @@ export async function GET(
   try {
     const id = parseInt(params.id);
 
-    // Try stories table first
     let [story] = db.select().from(stories).where(eq(stories.id, id)).all();
 
-    // If not found, try narratives table (auto-generated stories)
     let isNarrative = false;
+    let narrativeRecord: any = null;
+
     if (!story) {
       const [narrative] = db
         .select()
@@ -34,6 +35,7 @@ export async function GET(
         .all();
       if (narrative) {
         isNarrative = true;
+        narrativeRecord = narrative;
         story = {
           id: narrative.id,
           title: narrative.title,
@@ -50,24 +52,38 @@ export async function GET(
       return NextResponse.json({ error: "Story not found" }, { status: 404 });
     }
 
-    // ─── Linked Evidence ───
-    let evidenceList: any[] = [];
-    if (isNarrative) {
-      const [narrative] = db
-        .select()
-        .from(narratives)
-        .where(eq(narratives.id, id))
-        .all();
-      const evidenceIds = narrative?.evidenceIds
-        ? JSON.parse(narrative.evidenceIds)
-        : [];
-      for (const eid of evidenceIds) {
-        const rows = db
-          .select()
-          .from(evidence)
-          .where(eq(evidence.id, eid))
-          .all();
-        evidenceList.push(...rows);
+    // ─── Resolve Evidence IDs ───
+    let evidenceIds: number[] = [];
+
+    if (isNarrative && narrativeRecord) {
+      // Try evidenceIds first
+      if (narrativeRecord.evidenceIds) {
+        try {
+          evidenceIds = JSON.parse(narrativeRecord.evidenceIds);
+        } catch {
+          /* ignore parse error */
+        }
+      }
+
+      // FALLBACK: if empty, derive from clusterIds
+      if (evidenceIds.length === 0 && narrativeRecord.clusterIds) {
+        try {
+          const clusterIds: number[] = JSON.parse(narrativeRecord.clusterIds);
+          for (const cid of clusterIds) {
+            const [cluster] = db
+              .select()
+              .from(graphClusters)
+              .where(eq(graphClusters.id, cid))
+              .all();
+            if (cluster?.evidenceIds) {
+              const cEvidenceIds = JSON.parse(cluster.evidenceIds);
+              evidenceIds.push(...cEvidenceIds);
+            }
+          }
+          evidenceIds = [...new Set(evidenceIds)]; // dedupe
+        } catch {
+          /* ignore */
+        }
       }
     } else {
       const links = db
@@ -76,77 +92,72 @@ export async function GET(
         .where(eq(storyEvidence.storyId, id))
         .all();
       for (const link of links) {
-        const [ev] = db
-          .select()
-          .from(evidence)
-          .where(eq(evidence.id, link.evidenceId))
-          .all();
-        if (ev) evidenceList.push({ ...ev, junction: link });
+        evidenceIds.push(link.evidenceId);
       }
     }
 
-    // ─── Timeline Events (from linked evidence) ───
+    // ─── Fetch Evidence ───
+    let evidenceList: any[] = [];
+    for (const eid of evidenceIds) {
+      const rows = db.select().from(evidence).where(eq(evidence.id, eid)).all();
+      evidenceList.push(...rows);
+    }
+
+    // ─── Timeline Events ───
     let timelineList: any[] = [];
-    if (evidenceList.length > 0) {
-      for (const ev of evidenceList) {
-        const rows = db
-          .select()
-          .from(timelineEvents)
-          .where(eq(timelineEvents.evidenceId, ev.id))
-          .all();
-        timelineList.push(...rows);
-      }
-      // Deduplicate by id
-      const seen = new Set<number>();
-      timelineList = timelineList.filter((t) => {
-        if (seen.has(t.id)) return false;
-        seen.add(t.id);
-        return true;
-      });
+    for (const ev of evidenceList) {
+      const rows = db
+        .select()
+        .from(timelineEvents)
+        .where(eq(timelineEvents.evidenceId, ev.id))
+        .all();
+      timelineList.push(...rows);
     }
+    const seenTl = new Set<number>();
+    timelineList = timelineList.filter((t) => {
+      if (seenTl.has(t.id)) return false;
+      seenTl.add(t.id);
+      return true;
+    });
 
-    // ─── Linked Entities (from linked evidence) ───
+    // ─── Entities ───
     let entityList: any[] = [];
-    if (evidenceList.length > 0) {
-      for (const ev of evidenceList) {
-        const links = db
+    for (const ev of evidenceList) {
+      const links = db
+        .select()
+        .from(evidenceEntities)
+        .where(eq(evidenceEntities.evidenceId, ev.id))
+        .all();
+      for (const link of links) {
+        const [ent] = db
           .select()
-          .from(evidenceEntities)
-          .where(eq(evidenceEntities.evidenceId, ev.id))
+          .from(entities)
+          .where(eq(entities.id, link.entityId))
           .all();
-        for (const link of links) {
-          const [ent] = db
-            .select()
-            .from(entities)
-            .where(eq(entities.id, link.entityId))
-            .all();
-          if (ent && !entityList.find((e) => e.id === ent.id)) {
-            entityList.push(ent);
-          }
+        if (ent && !entityList.find((e) => e.id === ent.id)) {
+          entityList.push(ent);
         }
       }
     }
 
-    // ─── Relationships (from linked evidence) ───
+    // ─── Relationships ───
     let relationshipList: any[] = [];
-    if (evidenceList.length > 0) {
-      for (const ev of evidenceList) {
-        const rows = db
-          .select()
-          .from(relationships)
-          .where(eq(relationships.evidenceIds, JSON.stringify([ev.id])))
-          .all();
-        relationshipList.push(...rows);
-      }
-      const seen = new Set<number>();
-      relationshipList = relationshipList.filter((r) => {
-        if (seen.has(r.id)) return false;
-        seen.add(r.id);
-        return true;
-      });
+    for (const ev of evidenceList) {
+      const rows = db
+        .select()
+        .from(relationships)
+        .where(eq(relationships.evidenceIds, JSON.stringify([ev.id])))
+        .all();
+      relationshipList.push(...rows);
     }
+    const seenRel = new Set<number>();
+    relationshipList = relationshipList.filter((r) => {
+      if (seenRel.has(r.id)) return false;
+      seenRel.add(r.id);
+      return true;
+    });
 
-    // ─── Research Tasks & Briefs (manual stories only) ───
+    // ─── Tasks & Briefs (manual only) ───
     let taskList: any[] = [];
     let briefList: any[] = [];
     if (!isNarrative) {
@@ -188,7 +199,6 @@ export async function PATCH(
     const id = parseInt(params.id);
     const body = await request.json();
 
-    // Only update manual stories, not auto-generated narratives
     db.update(stories)
       .set({
         ...body,
