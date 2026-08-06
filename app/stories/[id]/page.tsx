@@ -23,6 +23,14 @@ import {
   Send,
 } from "lucide-react";
 
+function parseIssues(raw: any): string[] {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "string") {
+    try { return JSON.parse(raw) || []; } catch { return []; }
+  }
+  return [];
+}
+
 export default function StoryDetailPage() {
   const { id } = useParams() as { id: string };
   const [data, setData] = useState<any>(null);
@@ -48,7 +56,10 @@ export default function StoryDetailPage() {
           fetch(`/api/narratives/${id}/check`)
             .then((r) => r.json())
             .then((c) => {
-              if (c.check) setCheckResult(c.check);
+              if (c.check) {
+                c.check.issues = parseIssues(c.check.issues);
+                setCheckResult(c.check);
+              }
             })
             .catch(() => {});
         }
@@ -64,8 +75,12 @@ export default function StoryDetailPage() {
     try {
       const res = await fetch(`/api/narratives/${id}/check`, { method: "POST" });
       const d = await res.json();
-      if (d.success) setCheckResult(d);
-      else alert(d.error || "Check failed");
+      if (d.success) {
+        d.issues = parseIssues(d.issues);
+        setCheckResult(d);
+      } else {
+        alert(d.error || "Check failed");
+      }
     } catch (e: any) {
       alert(e.message);
     } finally {
@@ -124,6 +139,8 @@ export default function StoryDetailPage() {
   const relationshipList = data.relationships || [];
   const taskList = data.researchTasks || [];
   const briefList = data.generatedBriefs || [];
+
+  const issues = parseIssues(checkResult?.issues);
 
   return (
     <AppShell>
@@ -219,10 +236,10 @@ export default function StoryDetailPage() {
                     </div>
                   </div>
 
-                  {checkResult.issues?.length > 0 && (
+                  {issues.length > 0 && (
                     <div className="space-y-2">
                       <p className="text-sm font-medium text-destructive">Issues Found</p>
-                      {checkResult.issues.map((issue: string, i: number) => (
+                      {issues.map((issue: string, i: number) => (
                         <div
                           key={i}
                           className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-sm text-destructive"

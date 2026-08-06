@@ -4,6 +4,14 @@ import { narrativeChecks } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { checkNarrative } from "@/lib/story-checker";
 
+function parseIssues(raw: any): string[] {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "string") {
+    try { return JSON.parse(raw) || []; } catch { return []; }
+  }
+  return [];
+}
+
 export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
@@ -16,7 +24,12 @@ export async function GET(
       .where(eq(narrativeChecks.narrativeId, id))
       .orderBy(desc(narrativeChecks.checkedAt))
       .all();
-    return NextResponse.json({ check: latestCheck || null });
+
+    const check = latestCheck || null;
+    if (check && check.issues) {
+      check.issues = parseIssues(check.issues);
+    }
+    return NextResponse.json({ check });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message }, { status: 500 });
   }
