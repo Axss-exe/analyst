@@ -15,6 +15,12 @@ import {
   GitBranch,
   Calendar,
   CheckCircle,
+  Shield,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  Send,
 } from "lucide-react";
 
 export default function StoryDetailPage() {
@@ -22,6 +28,9 @@ export default function StoryDetailPage() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [checkResult, setCheckResult] = useState<any>(null);
+  const [checking, setChecking] = useState(false);
+  const [publishing, setPublishing] = useState(false);
 
   useEffect(() => {
     fetch(`/api/stories/${id}`)
@@ -35,12 +44,51 @@ export default function StoryDetailPage() {
       .then((d) => {
         setData(d);
         setLoading(false);
+        if (d.isNarrative) {
+          fetch(`/api/narratives/${id}/check`)
+            .then((r) => r.json())
+            .then((c) => {
+              if (c.check) setCheckResult(c.check);
+            })
+            .catch(() => {});
+        }
       })
       .catch((e) => {
         setError(e.message || "Failed to load story");
         setLoading(false);
       });
   }, [id]);
+
+  async function runCheck() {
+    setChecking(true);
+    try {
+      const res = await fetch(`/api/narratives/${id}/check`, { method: "POST" });
+      const d = await res.json();
+      if (d.success) setCheckResult(d);
+      else alert(d.error || "Check failed");
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function publishNarrative() {
+    setPublishing(true);
+    try {
+      const res = await fetch(`/api/narratives/${id}/publish`, { method: "POST" });
+      const d = await res.json();
+      if (d.success) {
+        window.location.reload();
+      } else {
+        alert(d.error || "Publish failed");
+      }
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setPublishing(false);
+    }
+  }
 
   if (loading)
     return (
@@ -69,6 +117,7 @@ export default function StoryDetailPage() {
     );
 
   const story = data.story;
+  const isNarrative = data.isNarrative || false;
   const evidenceList = data.linkedEvidence || [];
   const entityList = data.linkedEntities || [];
   const timelineList = data.timelineEvents || [];
@@ -88,43 +137,135 @@ export default function StoryDetailPage() {
           <Badge variant="outline" className="capitalize">
             {story.status || "active"}
           </Badge>
+          {isNarrative && (
+            <Badge variant="secondary" className="text-[10px]">
+              Auto-generated
+            </Badge>
+          )}
         </div>
 
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {story.title}
-          </h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{story.title}</h1>
           {story.overview ? (
             <p className="mt-2 text-muted-foreground">{story.overview}</p>
           ) : null}
         </div>
 
+        {/* ─── Story Checker (narratives only) ─── */}
+        {isNarrative && (
+          <Card className="border-l-4 border-l-primary">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Shield className="h-5 w-5 text-primary" />
+                  <h3 className="font-semibold">Story Checker</h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  {checkResult?.status === "passed" ? (
+                    <Badge className="bg-green-600 hover:bg-green-600">
+                      <CheckCircle2 className="mr-1 h-3 w-3" /> Passed
+                    </Badge>
+                  ) : checkResult?.status === "failed" ? (
+                    <Badge variant="destructive">
+                      <XCircle className="mr-1 h-3 w-3" /> Failed
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline">Not checked</Badge>
+                  )}
+
+                  {story.status === "draft" && checkResult?.status === "passed" && (
+                    <Button size="sm" onClick={publishNarrative} disabled={publishing}>
+                      {publishing ? (
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                      ) : (
+                        <Send className="mr-1 h-3 w-3" />
+                      )}
+                      Publish
+                    </Button>
+                  )}
+
+                  <Button size="sm" variant="outline" onClick={runCheck} disabled={checking}>
+                    {checking ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : (
+                      "Run Check"
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {checkResult && (
+                <div className="mt-4 space-y-4">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <div className="rounded-lg bg-muted p-3 text-center">
+                      <p className="text-2xl font-bold">{checkResult.overallScore}</p>
+                      <p className="text-xs text-muted-foreground">Overall Score</p>
+                    </div>
+                    <div className="rounded-lg bg-muted p-3 text-center">
+                      <p className="text-2xl font-bold">{checkResult.evidenceLinkCount}</p>
+                      <p className="text-xs text-muted-foreground">Evidence Links</p>
+                    </div>
+                    <div className="rounded-lg bg-muted p-3 text-center">
+                      <p className="text-2xl font-bold">
+                        {Math.round((checkResult.entityOverlapScore || 0) * 100)}%
+                      </p>
+                      <p className="text-xs text-muted-foreground">Entity Overlap</p>
+                    </div>
+                    <div className="rounded-lg bg-muted p-3 text-center">
+                      <p className="text-2xl font-bold">
+                        {Math.round((checkResult.factSupportRatio || 0) * 100)}%
+                      </p>
+                      <p className="text-xs text-muted-foreground">Fact Support</p>
+                    </div>
+                  </div>
+
+                  {checkResult.issues?.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-destructive">Issues Found</p>
+                      {checkResult.issues.map((issue: string, i: number) => (
+                        <div
+                          key={i}
+                          className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-sm text-destructive"
+                        >
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                          {issue}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {checkResult.status === "passed" && (
+                    <p className="text-sm text-green-600">
+                      This narrative passed all quality checks and can be published.
+                    </p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         <Tabs defaultValue="evidence">
           <TabsList>
             <TabsTrigger value="evidence">
-              <FileText className="mr-1 h-3 w-3" /> Evidence (
-              {evidenceList.length})
+              <FileText className="mr-1 h-3 w-3" /> Evidence ({evidenceList.length})
             </TabsTrigger>
             <TabsTrigger value="entities">
               <Users className="mr-1 h-3 w-3" /> Entities ({entityList.length})
             </TabsTrigger>
             <TabsTrigger value="timeline">
-              <Calendar className="mr-1 h-3 w-3" /> Timeline (
-              {timelineList.length})
+              <Calendar className="mr-1 h-3 w-3" /> Timeline ({timelineList.length})
             </TabsTrigger>
             <TabsTrigger value="relationships">
-              <GitBranch className="mr-1 h-3 w-3" /> Relations (
-              {relationshipList.length})
+              <GitBranch className="mr-1 h-3 w-3" /> Relations ({relationshipList.length})
             </TabsTrigger>
             {taskList.length > 0 && (
               <TabsTrigger value="tasks">
-                <CheckCircle className="mr-1 h-3 w-3" /> Tasks (
-                {taskList.length})
+                <CheckCircle className="mr-1 h-3 w-3" /> Tasks ({taskList.length})
               </TabsTrigger>
             )}
           </TabsList>
 
-          {/* Evidence Tab */}
           <TabsContent value="evidence" className="mt-4">
             {evidenceList.length === 0 ? (
               <Card>
@@ -138,12 +279,8 @@ export default function StoryDetailPage() {
                   <Link key={ev.id} href={`/evidence/${ev.id}`}>
                     <Card className="transition-colors hover:bg-accent">
                       <CardContent className="py-3">
-                        <p className="text-sm font-medium">
-                          {ev.title || "Untitled"}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {ev.source}
-                        </p>
+                        <p className="text-sm font-medium">{ev.title || "Untitled"}</p>
+                        <p className="text-xs text-muted-foreground">{ev.source}</p>
                       </CardContent>
                     </Card>
                   </Link>
@@ -152,7 +289,6 @@ export default function StoryDetailPage() {
             )}
           </TabsContent>
 
-          {/* Entities Tab */}
           <TabsContent value="entities" className="mt-4">
             {entityList.length === 0 ? (
               <Card>
@@ -166,9 +302,7 @@ export default function StoryDetailPage() {
                   <Link key={ent.id} href={`/entities/${ent.id}`}>
                     <Card className="transition-colors hover:bg-accent">
                       <CardContent className="py-3">
-                        <p className="text-sm font-medium">
-                          {ent.name || "Unknown"}
-                        </p>
+                        <p className="text-sm font-medium">{ent.name || "Unknown"}</p>
                         <Badge variant="outline" className="mt-1 text-[10px]">
                           {ent.type || "unknown"}
                         </Badge>
@@ -180,7 +314,6 @@ export default function StoryDetailPage() {
             )}
           </TabsContent>
 
-          {/* Timeline Tab */}
           <TabsContent value="timeline" className="mt-4">
             {timelineList.length === 0 ? (
               <Card>
@@ -196,17 +329,13 @@ export default function StoryDetailPage() {
                     <Card>
                       <CardContent className="py-3">
                         <span className="text-xs text-muted-foreground">
-                          {evt.date
-                            ? new Date(evt.date).toLocaleDateString()
-                            : "No date"}
+                          {evt.date ? new Date(evt.date).toLocaleDateString() : "No date"}
                         </span>
                         <p className="mt-0.5 text-sm font-medium">
                           {evt.title || evt.event || "Event"}
                         </p>
                         {evt.description ? (
-                          <p className="text-xs text-muted-foreground">
-                            {evt.description}
-                          </p>
+                          <p className="text-xs text-muted-foreground">{evt.description}</p>
                         ) : null}
                       </CardContent>
                     </Card>
@@ -216,7 +345,6 @@ export default function StoryDetailPage() {
             )}
           </TabsContent>
 
-          {/* Relationships Tab */}
           <TabsContent value="relationships" className="mt-4">
             {relationshipList.length === 0 ? (
               <Card>
@@ -251,20 +379,15 @@ export default function StoryDetailPage() {
             )}
           </TabsContent>
 
-          {/* Tasks Tab */}
           {taskList.length > 0 && (
             <TabsContent value="tasks" className="mt-4">
               <div className="space-y-2">
                 {taskList.map((task: any) => (
                   <Card key={task.id}>
                     <CardContent className="py-3">
-                      <p className="text-sm font-medium">
-                        {task.title || "Task"}
-                      </p>
+                      <p className="text-sm font-medium">{task.title || "Task"}</p>
                       <Badge
-                        variant={
-                          task.status === "completed" ? "default" : "outline"
-                        }
+                        variant={task.status === "completed" ? "default" : "outline"}
                         className="mt-1 text-[10px]"
                       >
                         {task.status || "pending"}

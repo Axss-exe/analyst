@@ -17,12 +17,16 @@ import { eq } from "drizzle-orm";
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: { id: string } }
 ) {
   try {
     const id = parseInt(params.id);
 
-    let [story] = db.select().from(stories).where(eq(stories.id, id)).all();
+    let [story] = db
+      .select()
+      .from(stories)
+      .where(eq(stories.id, id))
+      .all();
 
     let isNarrative = false;
     let narrativeRecord: any = null;
@@ -40,7 +44,7 @@ export async function GET(
           id: narrative.id,
           title: narrative.title,
           overview: narrative.overview || "",
-          status: "active",
+          status: narrative.status || "draft",
           createdBy: narrative.createdBy,
           createdAt: narrative.createdAt,
           updatedAt: narrative.createdAt,
@@ -49,23 +53,22 @@ export async function GET(
     }
 
     if (!story) {
-      return NextResponse.json({ error: "Story not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Story not found" },
+        { status: 404 }
+      );
     }
 
     // ─── Resolve Evidence IDs ───
     let evidenceIds: number[] = [];
 
     if (isNarrative && narrativeRecord) {
-      // Try evidenceIds first
       if (narrativeRecord.evidenceIds) {
         try {
           evidenceIds = JSON.parse(narrativeRecord.evidenceIds);
-        } catch {
-          /* ignore parse error */
-        }
+        } catch { /* ignore */ }
       }
 
-      // FALLBACK: if empty, derive from clusterIds
       if (evidenceIds.length === 0 && narrativeRecord.clusterIds) {
         try {
           const clusterIds: number[] = JSON.parse(narrativeRecord.clusterIds);
@@ -76,14 +79,11 @@ export async function GET(
               .where(eq(graphClusters.id, cid))
               .all();
             if (cluster?.evidenceIds) {
-              const cEvidenceIds = JSON.parse(cluster.evidenceIds);
-              evidenceIds.push(...cEvidenceIds);
+              evidenceIds.push(...JSON.parse(cluster.evidenceIds));
             }
           }
-          evidenceIds = [...new Set(evidenceIds)]; // dedupe
-        } catch {
-          /* ignore */
-        }
+          evidenceIds = [...new Set(evidenceIds)];
+        } catch { /* ignore */ }
       }
     } else {
       const links = db
@@ -99,7 +99,11 @@ export async function GET(
     // ─── Fetch Evidence ───
     let evidenceList: any[] = [];
     for (const eid of evidenceIds) {
-      const rows = db.select().from(evidence).where(eq(evidence.id, eid)).all();
+      const rows = db
+        .select()
+        .from(evidence)
+        .where(eq(evidence.id, eid))
+        .all();
       evidenceList.push(...rows);
     }
 
@@ -146,7 +150,9 @@ export async function GET(
       const rows = db
         .select()
         .from(relationships)
-        .where(eq(relationships.evidenceIds, JSON.stringify([ev.id])))
+        .where(
+          eq(relationships.evidenceIds, JSON.stringify([ev.id]))
+        )
         .all();
       relationshipList.push(...rows);
     }
@@ -175,6 +181,7 @@ export async function GET(
 
     return NextResponse.json({
       story,
+      isNarrative,
       linkedEvidence: evidenceList,
       linkedEntities: entityList,
       timelineEvents: timelineList,
@@ -186,14 +193,14 @@ export async function GET(
     console.error("Get story error:", error);
     return NextResponse.json(
       { error: "Failed to fetch story" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: { id: string } }
 ) {
   try {
     const id = parseInt(params.id);
@@ -212,29 +219,37 @@ export async function PATCH(
     console.error("Patch story error:", error);
     return NextResponse.json(
       { error: "Failed to update story" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: { id: string } }
 ) {
   try {
     const id = parseInt(params.id);
 
-    db.delete(storyEvidence).where(eq(storyEvidence.storyId, id)).run();
-    db.delete(researchTasks).where(eq(researchTasks.storyId, id)).run();
-    db.delete(generatedBriefs).where(eq(generatedBriefs.storyId, id)).run();
-    db.delete(stories).where(eq(stories.id, id)).run();
+    db.delete(storyEvidence)
+      .where(eq(storyEvidence.storyId, id))
+      .run();
+    db.delete(researchTasks)
+      .where(eq(researchTasks.storyId, id))
+      .run();
+    db.delete(generatedBriefs)
+      .where(eq(generatedBriefs.storyId, id))
+      .run();
+    db.delete(stories)
+      .where(eq(stories.id, id))
+      .run();
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("Delete story error:", error);
     return NextResponse.json(
       { error: "Failed to delete story" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

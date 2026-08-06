@@ -462,6 +462,7 @@ export const narratives = sqliteTable(
     id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
     title: text("title").notNull(),
     overview: text("overview").notNull(),
+    status: text("status").notNull().default("draft"),
     clusterIds: text("cluster_ids").notNull().default("[]"),
     evidenceIds: text("evidence_ids").notNull().default("[]"),
     confidence: real("confidence").notNull().default(0.5),
@@ -511,3 +512,35 @@ export const jobs = sqliteTable(
     jobsCreatedIdx: index("jobs_created_idx").on(t.createdAt),
   }),
 );
+
+
+export const evidenceImports = sqliteTable("evidence_imports", {
+  id: integer("id").primaryKey(),
+  filename: text("filename").notNull(),
+  records: text("records").notNull(),
+  status: text("status").notNull().default("pending"),
+  totalRecords: integer("total_records").notNull().default(0),
+  processedCount: integer("processed_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  cooldownSeconds: integer("cooldown_seconds").notNull().default(300),
+  currentIndex: integer("current_index").notNull().default(0),
+  errorLog: text("error_log"),
+  createdBy: integer("created_by"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const narrativeChecks = sqliteTable("narrative_checks", {
+  id: integer("id").primaryKey(),
+  narrativeId: integer("narrative_id").notNull(),
+  evidenceLinkCount: integer("evidence_link_count").notNull().default(0),
+  entityOverlapScore: real("entity_overlap_score"),
+  textQualityScore: real("text_quality_score"),
+  factSupportRatio: real("fact_support_ratio"),
+  overallScore: real("overall_score"),
+  issues: text("issues"),
+  status: text("status").notNull().default("pending"),
+  checkedAt: text("checked_at"),
+  createdAt: text("created_at").notNull(),
+});
+
