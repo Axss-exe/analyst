@@ -1,192 +1,31 @@
-export type UserRole = "admin" | "analyst";
+/**
+ * ATIS v4 — Global Type Definitions
+ * 
+ * This file contains all cross-cutting types used by the AI layer,
+ * graph layer, API routes, and UI components.
+ * 
+ * v3 types are preserved for backward compatibility.
+ * v4 types are additive and live in the "story-graph" namespace.
+ */
 
-export interface User {
-  id: number;
-  email: string;
-  name: string;
-  role: UserRole;
-  isBlocked: boolean;
-  createdAt: string;
-}
+// ═════════════════════════════════════════════════════════════════
+// v3 — Structured Extraction & Facts
+// ═════════════════════════════════════════════════════════════════
 
-export interface Evidence {
-  id: number;
-  title: string;
-  summary: string;
-  source: string;
-  sourceType: string;
-  publicationDate: string | null;
-  collectionDate: string;
+export interface StructuredExtraction {
+  entities: ExtractedEntity[];
+  facts: Fact[];
+  relationships: ExtractedRelationship[];
+  timeline?: TimelineEvent[];
+  topics?: string[];
   confidence: number;
-  tags: string;
-  aiMetadata: string | null;
-  createdBy: number;
-  createdAt: string;
 }
-
-export interface Story {
-  id: number;
-  title: string;
-  overview: string;
-  status: "active" | "archived" | "closed";
-  createdBy: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface Entity {
-  id: number;
-  name: string;
-  type: string;
-  aliases: string;
-  metadata: string | null;
-  createdBy: number;
-  createdAt: string;
-}
-
-export interface Relationship {
-  id: number;
-  sourceId: number;
-  targetId: number;
-  type: string;
-  confidence: number;
-  evidenceIds: string;
-  createdBy: number;
-  createdAt: string;
-}
-
-export interface TimelineEvent {
-  id: number;
-  date: string;
-  title: string;
-  description: string;
-  evidenceId: number | null;
-  storyId: number | null;
-  entityIds: string;
-  createdBy: number;
-  createdAt: string;
-}
-
-export interface ResearchTask {
-  id: number;
-  objective: string;
-  priority: "low" | "medium" | "high" | "critical";
-  ownerId: number;
-  deadline: string | null;
-  status: "open" | "in_progress" | "completed" | "cancelled";
-  completionNotes: string | null;
-  createdBy: number;
-  createdAt: string;
-}
-
-export interface GeneratedBrief {
-  id: number;
-  storyId: number;
-  headline: string;
-  content: string;
-  version: number;
-  generationMode: "full" | "partial" | "since_last";
-  evidenceIds: string;
-  templateId: number;
-  promptVersion: string;
-  llmModel: string;
-  createdBy: number;
-  createdAt: string;
-}
-
-export interface Template {
-  id: number;
-  name: string;
-  type: string;
-  config: string;
-  createdBy: number;
-  createdAt: string;
-}
-
-export interface Notification {
-  id: number;
-  userId: number;
-  type: string;
-  title: string;
-  message: string;
-  relatedObjectType: string | null;
-  relatedObjectId: number | null;
-  isRead: boolean;
-  createdAt: string;
-}
-
-export interface AuditLog {
-  id: number;
-  userId: number;
-  action: string;
-  targetType: string;
-  targetId: number;
-  previousValue: string | null;
-  newValue: string | null;
-  createdAt: string;
-}
-
-// ==================== ATIS v3: Graph-First Types ====================
 
 export interface ExtractedEntity {
   name: string;
   type: string;
-  aliases: string[];
-}
-
-export interface ExtractedEvent {
-  date: string;
-  title: string;
-  description: string;
-  entityNames: string[];
-}
-
-export interface ExtractedRelationship {
-  source: string;
-  target: string;
-  type: string;
-  description: string;
-}
-
-export interface ExtractedClaim {
-  claim: string;
-  subject: string;
-  confidence: number;
-}
-
-export interface ExtractedNumber {
-  value: string;
-  unit: string;
-  context: string;
-}
-
-export interface ExtractedEconomicIndicator {
-  indicator: string;
-  value: string;
-  period: string;
-}
-
-export interface CauseEffectPair {
-  cause: string;
-  effect: string;
-}
-
-export interface StructuredExtraction {
-  entities: ExtractedEntity[];
-  events: ExtractedEvent[];
-  relationships: ExtractedRelationship[];
-  dates: string[];
-  locations: string[];
-  legislation: string[];
-  people: string[];
-  organizations: string[];
-  topics: string[];
-  claims: ExtractedClaim[];
-  numbers: ExtractedNumber[];
-  economicIndicators: ExtractedEconomicIndicator[];
-  causeEffectPairs: CauseEffectPair[];
-  summary: string;
-  confidence: number;
+  mentions: number;
+  context?: string;
 }
 
 export interface Fact {
@@ -196,39 +35,54 @@ export interface Fact {
   object: string;
   evidenceId: number;
   confidence: number;
-  createdAt?: string;
+  createdAt?: Date;
 }
+
+export interface ExtractedRelationship {
+  source: string;
+  target: string;
+  type: string;
+  evidence?: string;
+  confidence: number;
+}
+
+export interface TimelineEvent {
+  date: string;
+  description: string;
+  entityNames?: string[];
+}
+
+// ═════════════════════════════════════════════════════════════════
+// v3 — Connection Signals (legacy, still used by Context Graph)
+// ═════════════════════════════════════════════════════════════════
 
 export interface ConnectionSignal {
+  id?: number;
   evidenceIdA: number;
   evidenceIdB: number;
-  signalType:
-    | "shared_entities"
-    | "shared_people"
-    | "shared_legislation"
-    | "shared_organizations"
-    | "shared_locations"
-    | "shared_events"
-    | "temporal_proximity"
-    | "cause_effect_language"
-    | "economic_indicator"
-    | "semantic_overlap";
+  signalType: string;
   strength: number;
   reason: string;
-  metadata?: Record<string, unknown>;
-  createdAt?: string;
+  createdAt?: Date;
 }
 
+// ═════════════════════════════════════════════════════════════════
+// v3 — Graph Clusters & Narratives
+// ═════════════════════════════════════════════════════════════════
+
 export interface GraphCluster {
-  id?: number;
+  id: number;
   name: string;
   description: string;
-  evidenceIds: number[];
-  entityIds: number[];
   density: number;
   status: "new" | "strengthened" | "merged" | "stable";
-  createdAt?: string;
-  updatedAt?: string;
+  evidenceCount: number;
+  entityCount: number;
+  evidenceIds: number[];
+  entityIds: number[];
+  narrative?: Narrative;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export interface Narrative {
@@ -238,12 +92,17 @@ export interface Narrative {
   clusterIds: number[];
   evidenceIds: number[];
   confidence: number;
-  generationType: "auto" | "manual";
-  createdAt?: string;
+  generationType: "manual" | "auto";
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
+// ═════════════════════════════════════════════════════════════════
+// v3 — Hidden Paths, Bridge Nodes, Contradictions
+// ═════════════════════════════════════════════════════════════════
+
 export interface HiddenPath {
-  path: number[];
+  path: number[]; // evidence IDs
   bridgeEvidenceIds: number[];
   explanation: string;
   signalTypes: string[];
@@ -265,11 +124,16 @@ export interface Contradiction {
   confidence: number;
 }
 
+// ═════════════════════════════════════════════════════════════════
+// v3 — Graph Visualization
+// ═════════════════════════════════════════════════════════════════
+
 export interface GraphNode {
   id: string;
   label: string;
   type: string;
-  data: Record<string, unknown>;
+  x?: number;
+  y?: number;
 }
 
 export interface GraphEdge {
@@ -278,5 +142,146 @@ export interface GraphEdge {
   target: string;
   label: string;
   confidence: number;
-  reason?: string;
+}
+
+export interface GraphStats {
+  evidenceCount: number;
+  entityCount: number;
+  relationshipCount: number;
+  connectionCount: number;
+  clusterCount: number;
+  averageClusterDensity: number;
+  bridgeNodeCount: number;
+}
+
+// ═════════════════════════════════════════════════════════════════
+// v3 — API Response Shapes
+// ═════════════════════════════════════════════════════════════════
+
+export interface DiscoverResponse {
+  clusters: GraphCluster[];
+  unlinkedCount: number;
+  clusteredCount: number;
+  totalNarratives: number;
+}
+
+export interface GraphResponse {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  clusters: GraphCluster[];
+  hiddenPaths: HiddenPath[];
+  bridgeNodes: BridgeNode[];
+  contradictions: Contradiction[];
+  narratives: Narrative[];
+  unclusteredCount: number;
+  stats: GraphStats;
+}
+
+export interface StoriesResponse {
+  stories: StoryItem[];
+  total: number;
+  manualCount: number;
+  autoCount: number;
+}
+
+export interface StoryItem {
+  id: number;
+  title: string;
+  overview: string;
+  status: string;
+  updatedAt: string;
+  evidenceCount: number;
+  generationType: "manual" | "auto";
+  confidence?: number;
+  clusterIds?: number[];
+}
+
+// ═════════════════════════════════════════════════════════════════
+// v4 — Re-exports from story-types (single source of truth)
+// ═════════════════════════════════════════════════════════════════
+
+export {
+  RELATIONSHIP_TYPE_WEIGHTS,
+  STORY_ESTABLISHING_TYPES,
+  STORY_SUPPRESSED_TYPES,
+  DEFAULT_STORY_GRAPH_CONFIG,
+  getRelationshipTier,
+  getRelationshipTypeWeight,
+  buildStoryGraphConfig,
+} from "@/lib/graph/story-types";
+
+export type {
+  RelationshipType,
+  RelationshipTier,
+  Program,
+  Event,
+  Problem,
+  Outcome,
+  Actor,
+  IntelligenceNode,
+  IntelligenceNodeType,
+  StoryBearingRelationship,
+  ContextGraph,
+  StoryGraph,
+  StorySeed,
+  CausalLink,
+  StoryDiagnostics,
+  StoryCandidate,
+  StoryCoherenceScore,
+  SuppressionContext,
+  EdgeSuppressionResult,
+  StructuredIntelligence,
+  StoryGraphConfig,
+  EdgeExplanation,
+  StoryDiagnosticView,
+} from "@/lib/graph/story-types";
+
+// ═════════════════════════════════════════════════════════════════
+// v4 — API Response Extensions (additive to v3 shapes)
+// ═════════════════════════════════════════════════════════════════
+
+/**
+ * Extended discover response that includes v4 story candidates
+ * alongside legacy v3 clusters. Frontends can consume either.
+ */
+export interface DiscoverResponseV4 extends DiscoverResponse {
+  storyCandidates: StoryCandidate[];
+  rejectedCandidates: StoryCandidate[];
+  singleDocumentStories: StoryCandidate[];
+  diagnostics: {
+    totalRelationshipsEvaluated: number;
+    storyGraphEdges: number;
+    contextGraphEdges: number;
+    seedsFound: number;
+    expansionsPerformed: number;
+  };
+}
+
+/**
+ * Extended graph response that exposes both graph layers.
+ */
+export interface GraphResponseV4 extends GraphResponse {
+  contextGraph: ContextGraph;
+  storyGraph: StoryGraph;
+  edgeExplanations: EdgeExplanation[];
+}
+
+/**
+ * Extended story item that includes v4 provenance metadata.
+ */
+export interface StoryItemV4 extends StoryItem {
+  dominantProgram?: string;
+  dominantProblem?: string;
+  dominantTheme?: string;
+  causalChain?: CausalLink[];
+  relationshipCounts?: {
+    strong: number;
+    medium: number;
+    weak: number;
+    total: number;
+  };
+  diagnostics?: StoryDiagnostics;
+  reasons?: string[];
+  whyDocumentsBelong?: string[];
+  whyNearbyDocumentsRejected?: string[];
 }

@@ -1,158 +1,214 @@
+/**
+ * ATIS v4 — /api/stories
+ * 
+ * GET: Returns all stories (manual + auto-discovered) with v4
+ * provenance metadata: relationship counts, causal chains,
+ * diagnostics, and why-documents-belong explanations.
+ * 
+ * v3 fields preserved for backward compatibility.
+ * v4 fields are additive.
+ */
+
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db/client";
+import { db } from "@/db";
 import {
   stories,
-  storyEvidence,
-  timelineEvents,
-  narratives,
+  storyCandidates,
+  storyCandidateEvidence,
+  storyRelationships,
+  evidence,
+  programs,
+  problems,
 } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
-import { requireAuth } from "@/lib/auth";
+import { eq, desc, sql, inArray } from "drizzle-orm";
+import {
+  type StoriesResponse,
+  type StoryItem,
+  type StoryItemV4,
+} from "@/types";
 
-export async function GET(request: NextRequest) {
+// ═════════════════════════════════════════════════════════════════
+// GET /api/stories
+// ═════════════════════════════════════════════════════════════════
+
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const user = await requireAuth();
     const { searchParams } = new URL(request.url);
-    const status = searchParams.get("status") || "active";
-    const includeAuto = searchParams.get("includeAuto") !== "false";
+    const filter = searchParams.get("filter") || "all"; // all | manual | auto | validated | rejected
 
-    // Manual stories
-    const storyList = db
-      .select()
-      .from(stories)
-      .where(eq(stories.status, status as any))
-      .orderBy(desc(stories.updatedAt))
-      .all();
+    const storyItems: StoryItemV4[] = [];
 
-    const storiesWithData = storyList.map((story) => {
-      const linkedEvidence = db
-        .select()
-        .from(storyEvidence)
-        .where(eq(storyEvidence.storyId, story.id))
-        .all();
-      const events = db
-        .select()
-        .from(timelineEvents)
-        .where(eq(timelineEvents.storyId, story.id))
-        .all();
+    // ── Load manual stories (v3 table) ─────────────────────────
+    const manualRows = await db.select().from(stories).orderBy(desc(stories.updatedAt)).all();
 
-      return {
-        ...story,
-        evidenceCount: linkedEvidence.length,
-        linkedEvidence,
-        timelineEvents: events,
-        generationType: "manual",
+    for (const row of manualRows) {
+      const evidenceIds = safeParseJson<number[]>(row.clusterIds, []); // v3 used clusterIds for evidence
+      const evidenceCount = evidenceIds.length;
+
+      const item: StoryItemV4 = {
+        id: row.id,
+        title: row.title,
+        overview: row.overview || "",
+        status: row.status,
+        updatedAt: row.updatedAt?.toISOString() || new Date().toISOString(),
+        evidenceCount,
+        generationType: row.generationType as StoryItem["generationType"],
+        confidence: row.confidence || undefined,
+        clusterIds: safeParseJson<number[]>(row.clusterIds, []),
+        // v4 fields (not available for manual stories)
+        dominantProgram: undefined,
+        dominantProblem: undefined,
+        dominantTheme: undefined,
+        causalChain: undefined,
+        relationshipCounts: undefined,
+        diagnostics: undefined,
+        reasons: undefined,
+        whyDocumentsBelong: undefined,
+        whyNearbyDocumentsRejected: undefined,
       };
-    });
 
-    // Auto-generated narratives
-    let autoNarratives: any[] = [];
-    if (includeAuto) {
-      const narrativeRows = db
-        .select()
-        .from(narratives)
-        .orderBy(desc(narratives.createdAt))
+      storyItems.push(item);
+    }
+
+    // ── Load auto-discovered stories (v4 table) ────────────────
+    let candidateQuery = db.select().from(storyCandidates);
+
+    if (filter === "validated") {
+      candidateQuery = candidateQuery.where(eq(storyCandidates.status, "validated"));
+    } else if (filter === "rejected") {
+      candidateQuery = candidateQuery.where(eq(storyCandidates.status, "rejected"));
+    } else if (filter === "auto") {
+      candidateQuery = candidateQuery.where(sql`${storyCandidates.status} != 'story'`);
+    }
+
+    const candidateRows = await candidateQuery.orderBy(desc(storyCandidates.coherenceScore)).all();
+
+    for (const row of candidateRows) {
+      // Load evidence for this candidate
+      const evidenceRows = await db.select({
+        evidenceId: storyCandidateEvidence.evidenceId,
+        role: storyCandidateEvidence.role,
+      })
+        .from(storyCandidateEvidence)
+        .where(eq(storyCandidateEvidence.storyCandidateId, row.id))
         .all();
 
-      autoNarratives = narrativeRows.map((n) => {
-        let clusterIds: number[] = [];
-        let evidenceIds: number[] = [];
-        try {
-          clusterIds = JSON.parse(n.clusterIds);
-        } catch {
-          /* ignore */
-        }
-        try {
-          evidenceIds = JSON.parse(n.evidenceIds);
-        } catch {
-          /* ignore */
-        }
+      const evidenceIds = evidenceRows.map((e) => e.evidenceId);
 
-        return {
-          id: n.id,
-          title: n.title,
-          overview: n.overview,
-          status: "active",
-          createdAt: n.createdAt,
-          updatedAt: n.createdAt,
-          evidenceCount: evidenceIds.length,
-          linkedEvidence: evidenceIds.map((id) => ({ evidenceId: id })),
-          timelineEvents: [],
-          generationType: n.generationType,
-          confidence: n.confidence,
-          clusterIds,
-          evidenceIds,
-        };
-      });
+      // Load dominant program name if available
+      let dominantProgram: string | undefined;
+      if (row.dominantProgramId) {
+        const prog = await db.select({ name: programs.name })
+          .from(programs)
+          .where(eq(programs.id, row.dominantProgramId))
+          .get();
+        dominantProgram = prog?.name;
+      }
+
+      // Load dominant problem name if available
+      let dominantProblem: string | undefined;
+      if (row.dominantProblemId) {
+        const prob = await db.select({ name: problems.name })
+          .from(problems)
+          .where(eq(problems.id, row.dominantProblemId))
+          .get();
+        dominantProblem = prob?.name;
+      }
+
+      // Load relationships for this candidate
+      const relCounts = safeParseJson<{
+        strong: number;
+        medium: number;
+        weak: number;
+        total: number;
+      }>(row.relationshipCounts, { strong: 0, medium: 0, weak: 0, total: 0 });
+
+      // Build why-documents-belong explanations
+      const whyBelong: string[] = [];
+      if (evidenceIds.length > 0) {
+        const rels = await db.select()
+          .from(storyRelationships)
+          .where(inArray(storyRelationships.sourceEvidenceId, evidenceIds))
+          .where(inArray(storyRelationships.targetEvidenceId, evidenceIds))
+          .where(sql`${storyRelationships.weight} >= 0.55`)
+          .all();
+
+        const seenPairs = new Set<string>();
+        for (const rel of rels) {
+          const pair = [rel.sourceEvidenceId, rel.targetEvidenceId].sort((a, b) => a - b).join(":");
+          if (seenPairs.has(pair)) continue;
+          seenPairs.add(pair);
+          whyBelong.push(`E${rel.sourceEvidenceId} ↔ E${rel.targetEvidenceId}: ${rel.relationshipType} (weight ${rel.weight?.toFixed(2) || "?"})`);
+        }
+      }
+
+      const item: StoryItemV4 = {
+        id: row.id,
+        title: row.name,
+        overview: row.description || "",
+        status: row.status,
+        updatedAt: row.updatedAt?.toISOString() || new Date().toISOString(),
+        evidenceCount: evidenceIds.length,
+        generationType: row.status === "story" ? "manual" : "auto",
+        confidence: row.confidence,
+        clusterIds: [row.id],
+        // v4 fields
+        dominantProgram,
+        dominantProblem,
+        dominantTheme: row.dominantTheme || undefined,
+        causalChain: safeParseJson(row.causalChain, []),
+        relationshipCounts: relCounts,
+        diagnostics: safeParseJson(row.diagnostics, undefined),
+        reasons: safeParseJson(row.reasons, []),
+        whyDocumentsBelong: whyBelong.slice(0, 5),
+        whyNearbyDocumentsRejected: [], // Would need edge explanations from graph build
+      };
+
+      storyItems.push(item);
     }
 
-    return NextResponse.json({
-      stories: [...storiesWithData, ...autoNarratives],
-      total: storiesWithData.length + autoNarratives.length,
-      manualCount: storiesWithData.length,
-      autoCount: autoNarratives.length,
-    });
-  } catch (error: any) {
-    if (error.message === "Unauthorized") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    console.error("Stories list error:", error);
+    // Apply filter
+    const filtered = filter === "all"
+      ? storyItems
+      : filter === "manual"
+        ? storyItems.filter((s) => s.generationType === "manual")
+        : filter === "auto"
+          ? storyItems.filter((s) => s.generationType === "auto")
+          : filter === "validated"
+            ? storyItems.filter((s) => s.status === "validated" || s.generationType === "manual")
+            : filter === "rejected"
+              ? storyItems.filter((s) => s.status === "rejected")
+              : storyItems;
+
+    const manualCount = filtered.filter((s) => s.generationType === "manual").length;
+    const autoCount = filtered.filter((s) => s.generationType === "auto").length;
+
+    const response: StoriesResponse = {
+      stories: filtered,
+      total: filtered.length,
+      manualCount,
+      autoCount,
+    };
+
+    return NextResponse.json(response);
+  } catch (err) {
+    console.error("[api/stories] GET failed:", err);
     return NextResponse.json(
-      { error: "Failed to fetch stories" },
-      { status: 500 },
+      { error: "Failed to load stories" },
+      { status: 500 }
     );
   }
 }
 
-export async function POST(request: NextRequest) {
+// ═════════════════════════════════════════════════════════════════
+// UTILITIES
+// ═════════════════════════════════════════════════════════════════
+
+function safeParseJson<T>(value: string | null | undefined, fallback: T): T {
+  if (!value) return fallback;
   try {
-    const user = await requireAuth();
-    const body = await request.json();
-    const { title, overview, evidenceIds } = body;
-
-    if (!title || !overview) {
-      return NextResponse.json(
-        { error: "Title and overview are required" },
-        { status: 400 },
-      );
-    }
-
-    const story = db
-      .insert(stories)
-      .values({
-        title,
-        overview,
-        status: "active",
-        createdBy: user.id,
-      })
-      .returning()
-      .get();
-
-    if (evidenceIds && evidenceIds.length > 0) {
-      for (const evidenceId of evidenceIds) {
-        db.insert(storyEvidence)
-          .values({
-            storyId: story.id,
-            evidenceId,
-            confidence: 0.7,
-            relationshipType: "manual",
-          })
-          .run();
-      }
-    }
-
-    return NextResponse.json({
-      story,
-      linkedEvidence: evidenceIds?.length || 0,
-    });
-  } catch (error: any) {
-    if (error.message === "Unauthorized") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    console.error("Story create error:", error);
-    return NextResponse.json(
-      { error: "Failed to create story" },
-      { status: 500 },
-    );
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
   }
 }

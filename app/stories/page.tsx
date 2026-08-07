@@ -1,215 +1,450 @@
+/**
+ * ATIS v4 — /stories
+ * 
+ * Displays all stories with v4 provenance metadata:
+ *   - Dominant program, problem, and theme
+ *   - Causal chain visualization
+ *   - Relationship count breakdown (strong/medium/weak)
+ *   - Coherence diagnostics
+ *   - Why-documents-belong explanations
+ *   - Filter by validation status
+ * 
+ * v3 features preserved: manual/auto distinction, confidence badges.
+ */
+
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Plus, Sparkles, BookOpen, Network } from "lucide-react";
-
-interface StoryItem {
-  id: number;
-  title: string;
-  overview: string;
-  status: string;
-  updatedAt: string;
-  evidenceCount: number;
-  generationType: "manual" | "auto";
-  confidence?: number;
-  clusterIds?: number[];
-}
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  type StoriesResponse,
+  type StoryItemV4,
+} from "@/types";
+import {
+  BookOpen,
+  Sparkles,
+  User,
+  BarChart3,
+  ArrowRight,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  Filter,
+} from "lucide-react";
 
 export default function StoriesPage() {
-  const [stories, setStories] = useState<StoryItem[]>([]);
-  const [search, setSearch] = useState("");
+  const [data, setData] = useState<StoriesResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<"all" | "manual" | "auto">("all");
-  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [expandedStory, setExpandedStory] = useState<number | null>(null);
+  const [filter, setFilter] = useState<string>("all");
 
   useEffect(() => {
-    fetchStories();
-  }, []);
+    fetch(`/api/stories?filter=${filter}`)
+      .then((res) => res.json())
+      .then((json: StoriesResponse) => {
+        setData(json);
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError(err.message);
+        setLoading(false);
+      });
+  }, [filter]);
 
-  const fetchStories = async (q = "") => {
-    setLoading(true);
-    const res = await fetch(
-      `/api/stories?search=${encodeURIComponent(q)}&limit=100`,
-    );
-    const data = await res.json();
-    setStories(data.stories || []);
-    setLoading(false);
-  };
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    fetchStories(search);
-  };
-
-  const filtered = stories.filter((s) => {
-    if (filter === "manual") return s.generationType === "manual";
-    if (filter === "auto") return s.generationType === "auto";
-    return true;
-  });
+  if (loading) return <StoriesSkeleton />;
+  if (error) return <StoriesError message={error} />;
+  if (!data || data.stories.length === 0) return <StoriesEmpty />;
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-5xl space-y-6">
-        <div className="flex items-center justify-between">
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Stories</h1>
-            <p className="text-sm text-muted-foreground">
-              Intelligence narratives built from connected evidence
+            <h1 className="text-3xl font-bold tracking-tight">Stories</h1>
+            <p className="text-muted-foreground mt-1">
+              {data.total} stories ({data.manualCount} manual, {data.autoCount} auto-discovered)
             </p>
           </div>
-          <div className="flex gap-2">
-            <Link href="/discover">
-              <Button variant="outline" size="sm">
-                <Network className="mr-1 h-4 w-4 text-amber-400" /> Discover
-                Stories
-              </Button>
-            </Link>
-            <Link href="/stories/new">
-              <Button size="sm">
-                <Plus className="mr-1 h-4 w-4" /> New Story
-              </Button>
-            </Link>
-          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <form onSubmit={handleSearch} className="flex gap-2 flex-1">
-            <Input
-              placeholder="Search stories..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="max-w-sm"
-            />
-            <Button type="submit" variant="outline" size="icon">
-              <Search className="h-4 w-4" />
-            </Button>
-          </form>
-          <Tabs
-            value={filter}
-            onValueChange={(v) => setFilter(v as any)}
-            className="w-auto"
+        {/* Filter Tabs */}
+        <Tabs value={filter} onValueChange={setFilter} className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="all">All ({data.total})</TabsTrigger>
+            <TabsTrigger value="manual">Manual ({data.manualCount})</TabsTrigger>
+            <TabsTrigger value="auto">Auto ({data.autoCount})</TabsTrigger>
+            <TabsTrigger value="validated">Validated</TabsTrigger>
+            <TabsTrigger value="rejected">Rejected</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value={filter} className="space-y-4">
+            {data.stories.map((story) => (
+              <StoryCard
+                key={story.id}
+                story={story}
+                isExpanded={expandedStory === story.id}
+                onToggle={() =>
+                  setExpandedStory(expandedStory === story.id ? null : story.id)
+                }
+              />
+            ))}
+          </TabsContent>
+        </Tabs>
+      </div>
+    </AppShell>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════
+// STORY CARD
+// ═════════════════════════════════════════════════════════════════
+
+function StoryCard({
+  story,
+  isExpanded,
+  onToggle,
+}: {
+  story: StoryItemV4;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const isManual = story.generationType === "manual";
+  const isValidated = story.status === "validated";
+  const isRejected = story.status === "rejected";
+
+  const statusColor = isManual
+    ? "bg-blue-100 text-blue-800 border-blue-300"
+    : isValidated
+      ? "bg-green-100 text-green-800 border-green-300"
+      : isRejected
+        ? "bg-red-100 text-red-800 border-red-300"
+        : "bg-amber-100 text-amber-800 border-amber-300";
+
+  return (
+    <Card className={`border-l-4 ${
+      isManual
+        ? "border-l-blue-500"
+        : isValidated
+          ? "border-l-green-500"
+          : isRejected
+            ? "border-l-red-400"
+            : "border-l-amber-500"
+    }`}>
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between">
+          <div className="space-y-1 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <CardTitle className="text-lg">{story.title}</CardTitle>
+              <span className={`text-xs px-2 py-0.5 rounded-full border ${statusColor}`}>
+                {story.status}
+              </span>
+              <Badge variant={isManual ? "default" : "secondary"} className="text-xs">
+                {isManual ? (
+                  <><User className="h-3 w-3 mr-1" /> Manual</>
+                ) : (
+                  <><Sparkles className="h-3 w-3 mr-1" /> Auto</>
+                )}
+              </Badge>
+            </div>
+            <CardDescription className="max-w-3xl">
+              {story.overview}
+            </CardDescription>
+          </div>
+          <button
+            onClick={onToggle}
+            className="p-1 hover:bg-slate-100 rounded-md transition-colors ml-2"
           >
-            <TabsList>
-              <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger value="manual">Manual</TabsTrigger>
-              <TabsTrigger value="auto">Auto</TabsTrigger>
-            </TabsList>
-          </Tabs>
+            {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+          </button>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        {/* Top Row: Scores & Counts */}
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          {story.confidence !== undefined && (
+            <ScoreBadge
+              label="Confidence"
+              value={story.confidence}
+              color={story.confidence > 0.7 ? "green" : story.confidence > 0.4 ? "amber" : "red"}
+            />
+          )}
+          <Badge variant="outline" className="font-mono">
+            <BookOpen className="h-3 w-3 mr-1" />
+            {story.evidenceCount} evidence
+          </Badge>
+          {story.clusterIds && story.clusterIds.length > 0 && (
+            <Badge variant="outline" className="font-mono">
+              {story.clusterIds.length} cluster{story.clusterIds.length > 1 ? "s" : ""}
+            </Badge>
+          )}
         </div>
 
-        {loading ? (
-          <div className="flex h-64 items-center justify-center">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          </div>
-        ) : filtered.length === 0 ? (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <BookOpen className="h-12 w-12 text-muted-foreground opacity-40 mx-auto" />
-              <p className="mt-3 text-muted-foreground">No stories found</p>
-              <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
-                {filter === "auto"
-                  ? "No auto-generated narratives yet. Upload evidence and run Story Discovery to generate graph-backed narratives."
-                  : "Stories emerge from connected evidence. Upload evidence and run Story Discovery to automatically find narratives."}
-              </p>
-              <div className="flex justify-center gap-2 mt-4">
-                <Link href="/discover">
-                  <Button variant="outline" size="sm">
-                    <Network className="mr-1 h-4 w-4" /> Discover
-                  </Button>
-                </Link>
-                <Link href="/evidence/new">
-                  <Button size="sm">
-                    <Plus className="mr-1 h-4 w-4" /> Add Evidence
-                  </Button>
-                </Link>
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Badge variant="outline">{filtered.length} shown</Badge>
-              <Badge variant="outline">
-                {stories.filter((s) => s.generationType === "manual").length}{" "}
-                manual
-              </Badge>
-              <Badge variant="outline">
-                {stories.filter((s) => s.generationType === "auto").length} auto
-              </Badge>
-            </div>
-
-            <div className="grid gap-3">
-              {filtered.map((story) => (
-                <Card
-                  key={`${story.generationType}-${story.id}`}
-                  className={`cursor-pointer transition-colors hover:bg-accent ${story.generationType === "auto" ? "border-l-4 border-l-indigo-500/40" : ""}`}
-                  onClick={() => router.push(`/stories/${story.id}`)}
-                >
-                  <CardContent className="flex items-start justify-between py-4 gap-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <h3 className="text-sm font-medium">{story.title}</h3>
-                        {story.generationType === "auto" ? (
-                          <Badge className="bg-indigo-500/10 text-indigo-400 border-indigo-500/20 text-[10px]">
-                            <Sparkles className="h-2.5 w-2.5 mr-0.5" />{" "}
-                            Graph-derived
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-[10px]">
-                            Manual
-                          </Badge>
-                        )}
-                        <Badge
-                          variant={
-                            story.status === "active" ? "default" : "secondary"
-                          }
-                          className="text-[10px] capitalize"
-                        >
-                          {story.status}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground line-clamp-2">
-                        {story.overview}
-                      </p>
-                      <div className="flex items-center gap-2 mt-2 text-[10px] text-muted-foreground">
-                        <span>{story.evidenceCount} evidence</span>
-                        <span>·</span>
-                        <span>
-                          {new Date(story.updatedAt).toLocaleDateString()}
-                        </span>
-                        {typeof story.confidence === "number" && (
-                          <>
-                            <span>·</span>
-                            <span className="text-indigo-400">
-                              {(story.confidence * 100).toFixed(0)}% confidence
-                            </span>
-                          </>
-                        )}
-                        {story.clusterIds && story.clusterIds.length > 0 && (
-                          <>
-                            <span>·</span>
-                            <span>
-                              {story.clusterIds.length} cluster
-                              {story.clusterIds.length > 1 ? "s" : ""}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+        {/* v4 Metadata Row */}
+        {(story.dominantProgram || story.dominantProblem || story.dominantTheme) && (
+          <div className="flex flex-wrap gap-2 text-xs">
+            {story.dominantProgram && (
+              <span className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-md border border-blue-200">
+                Program: {story.dominantProgram}
+              </span>
+            )}
+            {story.dominantProblem && (
+              <span className="px-2.5 py-1 bg-red-50 text-red-700 rounded-md border border-red-200">
+                Problem: {story.dominantProblem}
+              </span>
+            )}
+            {story.dominantTheme && (
+              <span className="px-2.5 py-1 bg-purple-50 text-purple-700 rounded-md border border-purple-200">
+                Theme: {story.dominantTheme}
+              </span>
+            )}
           </div>
         )}
+
+        {/* Relationship Counts */}
+        {story.relationshipCounts && (
+          <div className="flex gap-2 text-xs">
+            <span className="px-2 py-1 bg-green-50 text-green-700 rounded flex items-center gap-1">
+              <CheckCircle2 className="h-3 w-3" />
+              {story.relationshipCounts.strong} strong
+            </span>
+            <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" />
+              {story.relationshipCounts.medium} medium
+            </span>
+            <span className="px-2 py-1 bg-slate-50 text-slate-600 rounded flex items-center gap-1">
+              <Filter className="h-3 w-3" />
+              {story.relationshipCounts.weak} weak
+            </span>
+          </div>
+        )}
+
+        {/* Expanded Details */}
+        {isExpanded && (
+          <div className="space-y-4 pt-3 border-t">
+            {/* Causal Chain */}
+            {story.causalChain && story.causalChain.length > 0 && (
+              <div>
+                <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                  <ArrowRight className="h-4 w-4 text-blue-600" />
+                  Causal Chain
+                </h4>
+                <div className="flex flex-wrap items-center gap-2 text-sm bg-slate-50 rounded-lg p-3">
+                  {story.causalChain.map((link, i) => (
+                    <span key={i} className="flex items-center gap-2">
+                      <Badge variant="secondary" className="font-mono text-xs">
+                        E{link.from}
+                      </Badge>
+                      <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                        {link.relationshipType}
+                      </span>
+                      <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                      <Badge variant="secondary" className="font-mono text-xs">
+                        E{link.to}
+                      </Badge>
+                      {i < story.causalChain!.length - 1 && (
+                        <span className="text-muted-foreground mx-1">|</span>
+                      )}
+                    </span>
+                  ))}
+                </div>
+                {story.causalChain.map((link, i) => (
+                  link.description && (
+                    <p key={`desc-${i}`} className="text-xs text-muted-foreground mt-1 ml-2">
+                      {link.description}
+                    </p>
+                  )
+                ))}
+              </div>
+            )}
+
+            {/* Diagnostics */}
+            {story.diagnostics && (
+              <div>
+                <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4" />
+                  Coherence Diagnostics
+                </h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  <DiagnosticBar label="Program Identity" value={story.diagnostics.programIdentityScore} />
+                  <DiagnosticBar label="Causal Continuity" value={story.diagnostics.causalContinuityScore} />
+                  <DiagnosticBar label="Problem Consistency" value={story.diagnostics.problemConsistencyScore} />
+                  <DiagnosticBar label="Event Continuity" value={story.diagnostics.eventContinuityScore} />
+                  <DiagnosticBar label="Outcome Consistency" value={story.diagnostics.outcomeConsistencyScore} />
+                  <DiagnosticBar label="Temporal Coherence" value={story.diagnostics.temporalCoherenceScore} />
+                  <DiagnosticBar label="Evidence Density" value={story.diagnostics.evidenceDensityScore} />
+                </div>
+                {/* Penalties */}
+                {[
+                  { label: "Generic Location", value: story.diagnostics.genericLocationPenalty },
+                  { label: "Generic Actor", value: story.diagnostics.genericActorPenalty },
+                  { label: "Unrelated Sector", value: story.diagnostics.unrelatedSectorPenalty },
+                  { label: "Contradictory Program", value: story.diagnostics.contradictoryProgramPenalty },
+                ].some((p) => p.value > 0) && (
+                  <div className="mt-2 text-xs text-red-600">
+                    Penalties:{" "}
+                    {[
+                      { label: "Generic Location", value: story.diagnostics.genericLocationPenalty },
+                      { label: "Generic Actor", value: story.diagnostics.genericActorPenalty },
+                      { label: "Unrelated Sector", value: story.diagnostics.unrelatedSectorPenalty },
+                      { label: "Contradictory Program", value: story.diagnostics.contradictoryProgramPenalty },
+                    ]
+                      .filter((p) => p.value > 0)
+                      .map((p) => `${p.label} (${(p.value * 100).toFixed(0)}%)`)
+                      .join(", ")}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Why Documents Belong */}
+            {story.whyDocumentsBelong && story.whyDocumentsBelong.length > 0 && (
+              <div>
+                <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  Why These Documents Belong Together
+                </h4>
+                <ul className="space-y-1 text-sm text-muted-foreground">
+                  {story.whyDocumentsBelong.map((reason, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      <span className="text-green-500 mt-0.5">•</span>
+                      {reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Why Nearby Documents Rejected */}
+            {story.whyNearbyDocumentsRejected && story.whyNearbyDocumentsRejected.length > 0 && (
+              <div>
+                <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                  <XCircle className="h-4 w-4 text-red-600" />
+                  Why Nearby Documents Were Rejected
+                </h4>
+                <ul className="space-y-1 text-sm text-muted-foreground">
+                  {story.whyNearbyDocumentsRejected.map((reason, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      <span className="text-red-400 mt-0.5">•</span>
+                      {reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Reasons */}
+            {story.reasons && story.reasons.length > 0 && (
+              <div>
+                <h4 className="text-sm font-semibold mb-2">Discovery Reasons</h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {story.reasons.map((reason, i) => (
+                    <span
+                      key={i}
+                      className="text-xs bg-slate-100 text-slate-700 px-2 py-1 rounded"
+                    >
+                      {reason}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════
+// SUB-COMPONENTS
+// ═════════════════════════════════════════════════════════════════
+
+function ScoreBadge({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: number;
+  color: "green" | "amber" | "red";
+}) {
+  const colorMap = {
+    green: "bg-green-50 text-green-700 border-green-200",
+    amber: "bg-amber-50 text-amber-700 border-amber-200",
+    red: "bg-red-50 text-red-700 border-red-200",
+  };
+
+  return (
+    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-sm ${colorMap[color]}`}>
+      <span className="font-medium">{label}:</span>
+      <span className="font-bold font-mono">{(value * 100).toFixed(0)}%</span>
+    </div>
+  );
+}
+
+function DiagnosticBar({ label, value }: { label: string; value: number }) {
+  const pct = Math.round(value * 100);
+  const color = pct >= 70 ? "bg-green-500" : pct >= 40 ? "bg-amber-500" : "bg-red-500";
+
+  return (
+    <div className="bg-slate-50 rounded p-2">
+      <div className="text-xs text-muted-foreground mb-1 truncate">{label}</div>
+      <div className="font-mono font-bold text-sm">{pct}%</div>
+      <div className="w-full bg-slate-200 rounded-full h-1.5 mt-1">
+        <div className={`${color} h-1.5 rounded-full transition-all`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function StoriesSkeleton() {
+  return (
+    <AppShell>
+      <div className="space-y-6">
+        <Skeleton className="h-10 w-64" />
+        <Skeleton className="h-4 w-96" />
+        <Skeleton className="h-8 w-80" />
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-32" />
+        ))}
+      </div>
+    </AppShell>
+  );
+}
+
+function StoriesError({ message }: { message: string }) {
+  return (
+    <AppShell>
+      <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-4">
+        <BookOpen className="h-12 w-12 text-red-500" />
+        <h2 className="text-xl font-semibold">Failed to load stories</h2>
+        <p className="text-muted-foreground">{message}</p>
+      </div>
+    </AppShell>
+  );
+}
+
+function StoriesEmpty() {
+  return (
+    <AppShell>
+      <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-4">
+        <BookOpen className="h-12 w-12 text-slate-400" />
+        <h2 className="text-xl font-semibold">No stories yet</h2>
+        <p className="text-muted-foreground">
+          Add evidence and run discovery to generate stories.
+        </p>
       </div>
     </AppShell>
   );

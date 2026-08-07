@@ -1,79 +1,196 @@
-import { generateWithAI } from "./client";
+/**
+ * ATIS v4 — Relationship Extraction (Legacy Adapter)
+ * 
+ * This module preserves the v3 `extractRelationshipsFromText` signature
+ * for backward compatibility while adapting its output to the v4
+ * Story-Bearing Relationship format.
+ * 
+ * New code should use `lib/ai/relationship-extraction.ts` directly.
+ */
 
-export interface ExtractedRelationship {
-  source: string;
-  target: string;
-  type: string;
-  description: string;
-}
+import { generateWithAI } from "./index";
+import {
+  type ExtractedRelationship,
+} from "@/types";
+import {
+  type StoryBearingRelationship,
+  type RelationshipType,
+  getRelationshipTypeWeight,
+} from "@/lib/graph/story-types";
 
-export async function extractRelationshipsFromText(
-  text: string,
-  entities: Array<{ name: string; type: string }>,
-): Promise<ExtractedRelationship[]> {
-  if (entities.length < 2) {
-    return [];
-  }
+// ═════════════════════════════════════════════════════════════════
+// 1. v3 BACKWARD-COMPATIBLE EXTRACTION
+// ═════════════════════════════════════════════════════════════════
 
-  const sample = text.slice(0, 30000);
-  const entityList = entities
-    .map((e, i) => `${i + 1}. ${e.name} (${e.type})`)
-    .join("\n");
+/**
+ * Extract generic entity relationships from text.
+ * 
+ * v3 signature preserved. Returns v3 ExtractedRelationship shapes.
+ * These are stored in the `facts` table and used by the v3 graph builder.
+ */
+export async function extractRelationshipsFromText(text: string): Promise<ExtractedRelationship[]> {
+  if (!text || text.trim().length < 50) return [];
 
-  const prompt = `Given the following text and the list of entities extracted from it, identify relationships between those entities.
+  const prompt = `Extract semantic relationships between entities mentioned in this text.
 
-Text:
-${sample}
+Return a JSON array of objects with:
+- source: the subject entity
+- target: the object entity  
+- type: relationship type (funds, implements, partners_with, regulates, owns, operates, etc.)
+- evidence: supporting text snippet
+- confidence: 0.0–1.0
 
-Entities:
-${entityList}
+Text: ${text.slice(0, 6000)}
 
-Respond in this JSON format only:
-[
-  { "source": "Entity Name", "target": "Entity Name", "type": "relationship type", "description": "Brief description of the relationship" }
-]
-
-CRITICAL RULES:
-- Only use entity names EXACTLY as they appear in the list above.
-- "source" and "target" MUST be non-empty and MUST match names from the entity list.
-- "type" should describe the relationship (e.g., "owns", "regulates", "works for", "funds", "opposes").
-- "description" must be a brief factual sentence.
-- Only output valid JSON array. No markdown, no explanations.`;
-
-  const response = await generateWithAI(prompt, {
-    systemPrompt:
-      "You are a relationship extraction system. Identify factual relationships between named entities. NEVER invent entities not in the list.",
-    temperature: 0.1,
-    maxTokens: 2048,
-    timeoutMs: 45000,
-  });
+Return ONLY the JSON array.`;
 
   try {
-    const jsonMatch = response.match(/\[.*\]/s);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (Array.isArray(parsed)) {
-        const entityNames = new Set(entities.map((e) => e.name));
-        return parsed
-          .filter(
-            (r: any) =>
-              typeof r.source === "string" &&
-              typeof r.target === "string" &&
-              entityNames.has(r.source) &&
-              entityNames.has(r.target) &&
-              r.source !== r.target,
-          )
-          .map((r: any) => ({
-            source: r.source.trim(),
-            target: r.target.trim(),
-            type: (r.type || "related").trim(),
-            description: (r.description || "").trim(),
-          }));
-      }
-    }
-  } catch (e) {
-    console.error("[relationships] Parse failed:", e);
-  }
+    const response = await generateWithAI(prompt);
+    const cleaned = response
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/```\s*$/i, "")
+      .trim();
+    const parsed = JSON.parse(cleaned);
 
-  return [];
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .filter((r: unknown): r is Record<string, unknown> => typeof r === "object" && r !== null)
+      .map((r) => ({
+        source: String(r.source || ""),
+        target: String(r.target || ""),
+        type: String(r.type || ""),
+        evidence: r.evidence ? String(r.evidence) : undefined,
+        confidence: typeof r.confidence === "number" ? Math.max(0, Math.min(1, r.confidence)) : 0.8,
+      }))
+      .filter((r) => r.source && r.target && r.type);
+  } catch {
+    return [];
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════
+// 2. v4 ADAPTER: Convert v3 relationships to StoryBearing
+// ═════════════════════════════════════════════════════════════════
+
+/**
+ * Convert v3 ExtractedRelationship objects into v4 StoryBearingRelationship
+ * format for storage in the story_relationships table.
+ * 
+ * This bridges the v3 extraction output with the v4 graph pipeline.
+ * 
+ * @param relationships — v3 relationships from extractRelationshipsFromText
+ * @param evidenceId — the evidence item these relationships were extracted from
+ * @returns v4 StoryBearingRelationship array (intra-document only)
+ */
+export function adaptV3RelationshipsToV4(
+  relationships: ExtractedRelationship[],
+  evidenceId: number
+): StoryBearingRelationship[] {
+  return relationships
+    .map((rel) => {
+      const v4Type = mapV3TypeToV4(rel.type);
+      if (!v4Type) return null;
+
+      return {
+        sourceEvidenceId: evidenceId,
+        targetEvidenceId: evidenceId, // Intra-document: self-referential
+        type: v4Type,
+        weight: getRelationshipTypeWeight(v4Type),
+        confidence: rel.confidence,
+        explicit: true,
+        reason: rel.evidence || `Extracted relationship: ${rel.source} → ${rel.type} → ${rel.target}`,
+      };
+    })
+    .filter((r): r is StoryBearingRelationship => r !== null);
+}
+
+/**
+ * Map v3 relationship types to the v4 taxonomy.
+ * Returns null if the type cannot be mapped (generic types are dropped).
+ */
+function mapV3TypeToV4(v3Type: string): RelationshipType | null {
+  const mapping: Record<string, RelationshipType> = {
+    funds: "funds",
+    finances: "funds",
+    implements: "implements",
+    implements_by: "implements",
+    operates: "operationalizes",
+    operationalizes: "operationalizes",
+    causes: "causes",
+    caused_by: "triggered_by",
+    triggered_by: "triggered_by",
+    triggers: "causes",
+    produces: "produces",
+    results_in: "results_in",
+    leads_to: "results_in",
+    addresses: "addresses_problem",
+    addresses_problem: "addresses_problem",
+    supports: "supports",
+    evaluates: "evaluates",
+    aligned_with: "aligned_with",
+    part_of: "part_of_program",
+    part_of_program: "part_of_program",
+  };
+
+  const normalized = v3Type.toLowerCase().trim().replace(/\s+/g, "_");
+  return mapping[normalized] || null;
+}
+
+// ═════════════════════════════════════════════════════════════════
+// 3. BATCH CONVERSION UTILITY
+// ═════════════════════════════════════════════════════════════════
+
+/**
+ * Convert a batch of v3 facts (subject-predicate-object) into
+ * candidate v4 relationships.
+ * 
+ * This is used by the worker pipeline to enrich the relationship
+ * graph with causal language detected in v3 facts.
+ */
+export function factsToCandidateRelationships(
+  facts: Array<{ subject: string; predicate: string; object: string; evidenceId: number; confidence: number }>
+): StoryBearingRelationship[] {
+  const causalPredicates: Record<string, RelationshipType> = {
+    "cause": "causes",
+    "causes": "causes",
+    "trigger": "triggered_by",
+    "triggers": "causes",
+    "triggered_by": "triggered_by",
+    "produce": "produces",
+    "produces": "produces",
+    "result_in": "results_in",
+    "results_in": "results_in",
+    "lead_to": "results_in",
+    "leads_to": "results_in",
+    "address": "addresses_problem",
+    "addresses": "addresses_problem",
+    "fund": "funds",
+    "funds": "funds",
+    "finance": "funds",
+    "finances": "funds",
+    "implement": "implements",
+    "implements": "implements",
+    "operationalize": "operationalizes",
+    "operationalizes": "operationalizes",
+  };
+
+  return facts
+    .map((fact) => {
+      const pred = fact.predicate.toLowerCase().trim().replace(/\s+/g, "_");
+      const type = causalPredicates[pred];
+      if (!type) return null;
+
+      return {
+        sourceEvidenceId: fact.evidenceId,
+        targetEvidenceId: fact.evidenceId,
+        type,
+        weight: getRelationshipTypeWeight(type),
+        confidence: fact.confidence,
+        explicit: true,
+        reason: `Fact extraction: "${fact.subject} ${fact.predicate} ${fact.object}"`,
+      };
+    })
+    .filter((r): r is StoryBearingRelationship => r !== null);
 }

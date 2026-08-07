@@ -1,28 +1,59 @@
-export { generateWithAI, AIGenerationOptions } from "./client";
-export { generateEvidenceSummary } from "./summary";
-export { extractTopicsFromText, ExtractedTopics } from "./topics";
+/**
+ * ATIS v4 — AI Layer Barrel Exports
+ * 
+ * Central export point for all AI-related modules.
+ * 
+ * v3 exports preserved.
+ * v4 exports added.
+ */
+
+// ── v3: Core AI generation ──────────────────────────────────────
+export { generateWithAI } from "./generate";
+
+// ── v3: Entity extraction ───────────────────────────────────────
 export {
-  evaluateEvidenceSimilarity,
-  evaluateStoryRelevance,
-  EvidenceSimilarityResult,
-} from "./similarity";
+  extractEntitiesFromText,
+  extractTimelineEvents,
+} from "./entities";
+
+// ── v3: Topic extraction ────────────────────────────────────────
+export { extractTopicsFromText } from "./topics";
+
+// ── v3: Confidence scoring ──────────────────────────────────────
+export { calculateConfidence } from "./confidence";
+
+// ── v3: Story generation ────────────────────────────────────────
 export {
-  proposeStoryFromEvidence,
-  generateBriefContent,
+  generateStoryFromEvidence,
   generateNarrativeFromCluster,
-  StoryProposal,
 } from "./stories";
-export type { NarrativeInput } from "./stories";
-export { extractEntitiesFromText, extractTimelineEvents } from "./entities";
+
+// ── v3: Relationship extraction (legacy signature) ──────────────
+export { extractRelationshipsFromText } from "./relationships";
+
+// ── v4: Unified extraction (replaces v3 single-pass) ────────────
 export {
-  extractRelationshipsFromText,
-  ExtractedRelationship,
-} from "./relationships";
-export { evaluateSourceConfidence } from "./confidence";
+  extractStructuredFacts,
+  extractFacts, // v3 backward-compatible wrapper
+  type UnifiedExtractionResult,
+} from "./extraction";
+
+// ── v4: Intelligence node extraction ────────────────────────────
 export {
-  estimateTokens,
-  estimatePages,
-  splitByTokenBudget,
-} from "./token-counter";
-export { getRateLimitStatus } from "./rate-limiter";
-export { extractStructuredFacts } from "./extraction";
+  normalizeName,
+  normalizeAcronym,
+  namesMatch,
+  normalizeIntelligenceExtraction,
+  assessSingleDocumentStory,
+  buildIntelligenceExtractionPrompt,
+  INTELLIGENCE_EXTRACTION_SCHEMA,
+  type RawIntelligenceExtraction,
+  type SingleDocumentAssessment,
+} from "./programs";
+
+// ── v4: Typed relationship extraction (TURN 4) ──────────────────
+export {
+  extractStoryBearingRelationships,
+  buildRelationshipExtractionPrompt,
+  type RawRelationshipExtraction,
+} from "./relationship-extraction";

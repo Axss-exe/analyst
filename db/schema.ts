@@ -544,3 +544,103 @@ export const narrativeChecks = sqliteTable("narrative_checks", {
   createdAt: text("created_at").notNull(),
 });
 
+
+
+// ==================== ATIS v4: Story-Bearing Graph Schema ====================
+
+export const storyGraphEdges = sqliteTable(
+  "story_graph_edges",
+  {
+    id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+    evidenceIdA: integer("evidence_id_a")
+      .notNull()
+      .references(() => evidence.id, { onDelete: "cascade" }),
+    evidenceIdB: integer("evidence_id_b")
+      .notNull()
+      .references(() => evidence.id, { onDelete: "cascade" }),
+    relationshipType: text("relationship_type").notNull(),
+    weight: real("weight").notNull().default(0),
+    confidence: real("confidence").notNull().default(0.5),
+    explicit: integer("explicit", { mode: "boolean" }).notNull().default(true),
+    explanation: text("explanation").notNull().default(""),
+    sourceEvidence: text("source_evidence").notNull().default(""),
+    inferred: integer("inferred", { mode: "boolean" }).notNull().default(false),
+    inferenceChain: text("inference_chain").notNull().default("[]"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (t) => ({
+    storyEdgeUniqueIdx: uniqueIndex("story_edge_unique_idx").on(
+      t.evidenceIdA,
+      t.evidenceIdB,
+      t.relationshipType,
+    ),
+    storyEdgeAIdx: index("story_edge_a_idx").on(t.evidenceIdA),
+    storyEdgeBIdx: index("story_edge_b_idx").on(t.evidenceIdB),
+    storyEdgeTypeIdx: index("story_edge_type_idx").on(t.relationshipType),
+    storyEdgeWeightIdx: index("story_edge_weight_idx").on(t.weight),
+  }),
+);
+
+export const contextGraphEdges = sqliteTable(
+  "context_graph_edges",
+  {
+    id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+    evidenceIdA: integer("evidence_id_a")
+      .notNull()
+      .references(() => evidence.id, { onDelete: "cascade" }),
+    evidenceIdB: integer("evidence_id_b")
+      .notNull()
+      .references(() => evidence.id, { onDelete: "cascade" }),
+    relationshipType: text("relationship_type").notNull(),
+    weight: real("weight").notNull().default(0),
+    confidence: real("confidence").notNull().default(0.5),
+    explanation: text("explanation").notNull().default(""),
+    sourceEvidence: text("source_evidence").notNull().default(""),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (t) => ({
+    contextEdgeUniqueIdx: uniqueIndex("context_edge_unique_idx").on(
+      t.evidenceIdA,
+      t.evidenceIdB,
+      t.relationshipType,
+    ),
+    contextEdgeAIdx: index("context_edge_a_idx").on(t.evidenceIdA),
+    contextEdgeBIdx: index("context_edge_b_idx").on(t.evidenceIdB),
+    contextEdgeTypeIdx: index("context_edge_type_idx").on(t.relationshipType),
+  }),
+);
+
+export const storyCandidates = sqliteTable(
+  "story_candidates",
+  {
+    id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+    evidenceIds: text("evidence_ids").notNull().default("[]"),
+    seedType: text("seed_type").notNull().default("program_cluster"),
+    coherenceOverall: real("coherence_overall").notNull().default(0),
+    coherenceProgramIdentity: real("coherence_program_identity").notNull().default(0),
+    coherenceProblemConsistency: real("coherence_problem_consistency").notNull().default(0),
+    coherenceGeographic: real("coherence_geographic").notNull().default(0),
+    coherenceTemporal: real("coherence_temporal").notNull().default(0),
+    coherenceDensity: real("coherence_density").notNull().default(0),
+    isValid: integer("is_valid", { mode: "boolean" }).notNull().default(false),
+    rejectionReason: text("rejection_reason"),
+    provenanceEdges: text("provenance_edges").notNull().default("[]"),
+    status: text("status", { enum: ["pending", "validated", "rejected", "promoted"] })
+      .notNull()
+      .default("pending"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (t) => ({
+    candidateStatusIdx: index("candidate_status_idx").on(t.status),
+    candidateCoherenceIdx: index("candidate_coherence_idx").on(t.coherenceOverall),
+  }),
+);
