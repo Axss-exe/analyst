@@ -52,7 +52,7 @@ export function computeCoherence(docs: CoherenceInputDoc[]): CoherenceScore {
     uniqueCountries.length > 0
       ? Math.min(
           1,
-          (1 / Math.max(1, uniqueCountries.length - 1)) * 0.5 + 0.5,
+          (1 / uniqueCountries.length) * 0.5 + 0.5,
         )
       : 0;
 

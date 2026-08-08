@@ -52,13 +52,13 @@ describe("Provenance Requirements", () => {
     ];
     const { contextEdges } = buildStoryGraph(rels);
     expect(contextEdges.length).toBe(1);
-    expect(contextEdges[0].explanation).toContain("context");
+    expect(contextEdges[0].explanation).toContain("Context");
   });
 
   it("inferred edge must include inference chain", () => {
     const rels: TypedRelationship[] = [
       makeRel(1, 3, "same_policy_area", {
-        confidence: 0.7, explicit: false,
+        confidence: 0.8, explicit: false,
         explanation: "Inferred same policy area through shared strategic objective",
         sourceEvidence: "Strategic objective alignment analysis",
         inferred: true,

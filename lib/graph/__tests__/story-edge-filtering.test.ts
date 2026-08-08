@@ -20,7 +20,7 @@ describe("Story Edge Filtering", () => {
   it("weak same_program edge stays in Context Graph", () => {
     const result = classifyEdge("same_program", 0.30);
     expect(result.entersStoryGraph).toBe(false);
-    expect(result.reason).toContain("below threshold");
+    expect(result.reason).toContain("below Story Graph threshold");
   });
 
   it("same_country edge stays in Context Graph regardless of weight", () => {

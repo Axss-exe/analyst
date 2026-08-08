@@ -13,7 +13,7 @@ export const DEFAULT_STORY_GRAPH_CONFIG: StoryGraphConfig = {
     part_of_program: 0.85,
     implements: 0.80,
     funds: 0.75,
-    causes: 0.80,
+    causes: 0.85,
     triggered_by: 0.80,
     results_in: 0.75,
     addresses_problem: 0.78,

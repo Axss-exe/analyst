@@ -1,571 +1,259 @@
-/**
- * ATIS v4 — /discover
- * 
- * Displays discovered stories with v4 intelligence:
- *   - Story candidates with coherence scores and confidence badges
- *   - Seed vs context evidence breakdown
- *   - Rejected candidates with rejection reasons
- *   - Single-document stories
- *   - Pipeline diagnostics
- *   - Edge explanations per candidate
- * 
- * v3 cluster display preserved in a separate tab.
- */
-
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
-  type DiscoverResponseV4,
-  type StoryCandidate,
-} from "@/types";
-import {
-  BookOpen,
-  CheckCircle2,
-  XCircle,
-  FileText,
+  Loader2,
   Sparkles,
-  BarChart3,
-  AlertTriangle,
-  ChevronDown,
-  ChevronUp,
+  GitBranch,
+  Users,
+  FileText,
+  CheckCircle,
+  Network,
 } from "lucide-react";
 
+interface ClusterView {
+  id: number;
+  name: string;
+  description: string;
+  density: number;
+  status: "new" | "strengthened" | "merged" | "stable";
+  evidenceCount: number;
+  entityCount: number;
+  evidenceIds: number[];
+  entityIds: number[];
+  narrative: { title: string; overview: string; confidence: number } | null;
+}
+
 export default function DiscoverPage() {
-  const [data, setData] = useState<DiscoverResponseV4 | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [expandedCandidate, setExpandedCandidate] = useState<number | null>(null);
+  const [clusters, setClusters] = useState<ClusterView[]>([]);
+  const [unlinkedCount, setUnlinkedCount] = useState(0);
+  const [clusteredCount, setClusteredCount] = useState(0);
+  const [totalNarratives, setTotalNarratives] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState<number | null>(null);
+  const [created, setCreated] = useState<number[]>([]);
 
-  useEffect(() => {
-    fetch("/api/discover")
-      .then((res) => res.json())
-      .then((json: DiscoverResponseV4) => {
-        setData(json);
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError(err.message);
-        setLoading(false);
+  const runDiscovery = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/discover");
+      const data = await res.json();
+      if (res.ok) {
+        setClusters(data.clusters || []);
+        setUnlinkedCount(data.unlinkedCount || 0);
+        setClusteredCount(data.clusteredCount || 0);
+        setTotalNarratives(data.totalNarratives || 0);
+      }
+    } catch {
+      alert("Discovery failed");
+    }
+    setLoading(false);
+  };
+
+  const createStory = async (cluster: ClusterView, index: number) => {
+    setCreating(index);
+    try {
+      const res = await fetch("/api/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: cluster.narrative?.title || cluster.name,
+          overview: cluster.narrative?.overview || cluster.description,
+          evidenceIds: cluster.evidenceIds,
+        }),
       });
-  }, []);
+      if (res.ok) {
+        setCreated((prev) => [...prev, index]);
+      } else {
+        alert("Failed to create story");
+      }
+    } catch {
+      alert("Network error");
+    }
+    setCreating(null);
+  };
 
-  if (loading) return <DiscoverSkeleton />;
-  if (error) return <DiscoverError message={error} />;
-  if (!data) return <DiscoverEmpty />;
+  const statusColors: Record<string, string> = {
+    new: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+    strengthened: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+    merged: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    stable: "bg-slate-500/10 text-slate-400 border-slate-500/20",
+  };
 
   return (
     <AppShell>
-      <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Discover Stories</h1>
-          <p className="text-muted-foreground mt-1">
-            Auto-discovered narrative clusters with coherence validation
-          </p>
+      <div className="mx-auto max-w-5xl space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+              <Network className="h-6 w-6 text-indigo-400" />
+              Story Discovery
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Graph-driven discovery: clusters, hidden paths, and emerging
+              narratives
+            </p>
+          </div>
+          <Button onClick={runDiscovery} disabled={loading}>
+            {loading ? (
+              <>
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" /> Analyzing...
+              </>
+            ) : (
+              <>
+                <Sparkles className="mr-1 h-4 w-4" /> Run Discovery
+              </>
+            )}
+          </Button>
         </div>
 
-        {/* Diagnostics Bar */}
-        <DiagnosticsBar diagnostics={data.diagnostics} />
+        {clusters.length === 0 && !loading && (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <GitBranch className="h-12 w-12 text-muted-foreground opacity-40 mx-auto" />
+              <p className="mt-3 text-muted-foreground">
+                No story clusters found yet
+              </p>
+              <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+                Upload evidence with full text content. The graph reasoning
+                system will extract atomic facts, compute connection signals,
+                and discover emerging clusters.
+              </p>
+              <div className="flex justify-center gap-2 mt-4">
+                <Link href="/evidence/new">
+                  <Button size="sm">
+                    <FileText className="mr-1 h-4 w-4" /> Add Evidence
+                  </Button>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
-        <Tabs defaultValue="candidates" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="candidates">
-              <Sparkles className="h-4 w-4 mr-2" />
-              Story Candidates ({data.storyCandidates.length})
-            </TabsTrigger>
-            <TabsTrigger value="single">
-              <FileText className="h-4 w-4 mr-2" />
-              Single-Document ({data.singleDocumentStories.length})
-            </TabsTrigger>
-            <TabsTrigger value="rejected">
-              <XCircle className="h-4 w-4 mr-2" />
-              Rejected ({data.rejectedCandidates.length})
-            </TabsTrigger>
-            <TabsTrigger value="legacy">
-              <BookOpen className="h-4 w-4 mr-2" />
-              Legacy Clusters ({data.clusters.length})
-            </TabsTrigger>
-          </TabsList>
+        {clusters.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Badge variant="outline">{unlinkedCount} unlinked</Badge>
+              <Badge variant="outline">{clusteredCount} clustered</Badge>
+              <Badge variant="outline">{clusters.length} clusters</Badge>
+              <Badge variant="outline">{totalNarratives} narratives</Badge>
+            </div>
 
-          {/* Story Candidates */}
-          <TabsContent value="candidates" className="space-y-4">
-            {data.storyCandidates.length === 0 ? (
-              <EmptyState message="No story candidates found. Add more evidence with specific program references." />
-            ) : (
-              data.storyCandidates.map((candidate) => (
-                <StoryCandidateCard
-                  key={candidate.id}
-                  candidate={candidate}
-                  isExpanded={expandedCandidate === candidate.id}
-                  onToggle={() =>
-                    setExpandedCandidate(expandedCandidate === candidate.id ? null : candidate.id!)
-                  }
-                />
-              ))
-            )}
-          </TabsContent>
-
-          {/* Single-Document Stories */}
-          <TabsContent value="single" className="space-y-4">
-            {data.singleDocumentStories.length === 0 ? (
-              <EmptyState message="No single-document stories found. Documents need complete problem→intervention→outcome structure." />
-            ) : (
-              data.singleDocumentStories.map((story) => (
-                <StoryCandidateCard
-                  key={story.id}
-                  candidate={story}
-                  isExpanded={expandedCandidate === story.id}
-                  onToggle={() =>
-                    setExpandedCandidate(expandedCandidate === story.id ? null : story.id!)
-                  }
-                  singleDoc
-                />
-              ))
-            )}
-          </TabsContent>
-
-          {/* Rejected Candidates */}
-          <TabsContent value="rejected" className="space-y-4">
-            {data.rejectedCandidates.length === 0 ? (
-              <EmptyState message="No rejected candidates. All discovered clusters passed coherence validation." />
-            ) : (
-              data.rejectedCandidates.map((candidate) => (
-                <RejectedCandidateCard key={candidate.id} candidate={candidate} />
-              ))
-            )}
-          </TabsContent>
-
-          {/* Legacy Clusters (v3) */}
-          <TabsContent value="legacy" className="space-y-4">
-            {data.clusters.length === 0 ? (
-              <EmptyState message="No legacy clusters found." />
-            ) : (
-              data.clusters.map((cluster) => (
-                <Card key={cluster.id}>
-                  <CardHeader>
-                    <CardTitle className="text-lg">{cluster.name}</CardTitle>
-                    <CardDescription>{cluster.description}</CardDescription>
+            <div className="grid gap-4">
+              {clusters.map((cluster, idx) => (
+                <Card
+                  key={cluster.id}
+                  className={created.includes(idx) ? "opacity-60" : ""}
+                >
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <CardTitle className="text-base">
+                            {cluster.name}
+                          </CardTitle>
+                          <Badge className={statusColors[cluster.status] || ""}>
+                            {cluster.status}
+                          </Badge>
+                          {cluster.narrative && (
+                            <Badge className="bg-indigo-500/10 text-indigo-400 border-indigo-500/20">
+                              <Sparkles className="h-2.5 w-2.5 mr-0.5" />{" "}
+                              Narrative
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {cluster.description}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                        <Badge variant="outline">
+                          {cluster.evidenceCount} evidence
+                        </Badge>
+                        <Badge variant="outline">
+                          <Users className="h-2.5 w-2.5 mr-0.5" />
+                          {cluster.entityCount} entities
+                        </Badge>
+                        <Badge variant="outline">
+                          density {cluster.density.toFixed(2)}
+                        </Badge>
+                        {created.includes(idx) ? (
+                          <Badge className="bg-emerald-500/20 text-emerald-400">
+                            <CheckCircle className="h-3 w-3 mr-1" /> Created
+                          </Badge>
+                        ) : (
+                          <Button
+                            size="sm"
+                            onClick={() => createStory(cluster, idx)}
+                            disabled={creating === idx}
+                          >
+                            {creating === idx ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              "Create Story"
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
                   </CardHeader>
-                  <CardContent>
-                    <div className="flex gap-2 flex-wrap">
-                      <Badge variant="secondary">Density: {cluster.density.toFixed(2)}</Badge>
-                      <Badge variant="outline">{cluster.evidenceCount} evidence</Badge>
-                      <Badge variant="outline">{cluster.entityCount} entities</Badge>
-                      <Badge variant={cluster.status === "stable" ? "default" : "secondary"}>
-                        {cluster.status}
-                      </Badge>
+                  <CardContent className="space-y-4">
+                    {cluster.narrative && (
+                      <div className="rounded-md bg-indigo-500/5 border border-indigo-500/10 p-3">
+                        <p className="text-xs font-semibold text-indigo-400 mb-1">
+                          Auto-Generated Narrative
+                        </p>
+                        <p className="text-sm font-medium">
+                          {cluster.narrative.title}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                          {cluster.narrative.overview}
+                        </p>
+                        <Badge variant="outline" className="mt-2 text-[10px]">
+                          confidence{" "}
+                          {(cluster.narrative.confidence * 100).toFixed(0)}%
+                        </Badge>
+                      </div>
+                    )}
+
+                    <div className="rounded-md bg-muted/50 p-3">
+                      <p className="text-xs font-medium mb-1">
+                        Why this cluster exists:
+                      </p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {cluster.description}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                      <span>Evidence:</span>
+                      <div className="flex flex-wrap gap-1">
+                        {Array.isArray(cluster.evidenceIds) && cluster.evidenceIds.slice(0, 8).map((id) => (
+                          <Link
+                            key={id}
+                            href={`/evidence/${id}`}
+                            className="hover:text-primary transition-colors underline underline-offset-2"
+                          >
+                            #{id}
+                          </Link>
+                        ))}
+                        {Array.isArray(cluster.evidenceIds) && cluster.evidenceIds.length > 8 && (
+                          <span>+{cluster.evidenceIds.length - 8} more</span>
+                        )}
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
-              ))
-            )}
-          </TabsContent>
-        </Tabs>
-      </div>
-    </AppShell>
-  );
-}
-
-// ═════════════════════════════════════════════════════════════════
-// COMPONENTS
-// ═════════════════════════════════════════════════════════════════
-
-function StoryCandidateCard({
-  candidate,
-  isExpanded,
-  onToggle,
-  singleDoc = false,
-}: {
-  candidate: StoryCandidate;
-  isExpanded: boolean;
-  onToggle: () => void;
-  singleDoc?: boolean;
-}) {
-  const statusColor =
-    candidate.status === "validated"
-      ? "bg-green-100 text-green-800 border-green-300"
-      : candidate.status === "candidate"
-        ? "bg-amber-100 text-amber-800 border-amber-300"
-        : "bg-slate-100 text-slate-800 border-slate-300";
-
-  return (
-    <Card className={`border-l-4 ${singleDoc ? "border-l-purple-500" : candidate.status === "validated" ? "border-l-green-500" : "border-l-amber-500"}`}>
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <div className="space-y-1">
-            <CardTitle className="text-lg flex items-center gap-2">
-              {candidate.name}
-              <span className={`text-xs px-2 py-0.5 rounded-full border ${statusColor}`}>
-                {candidate.status}
-              </span>
-              {singleDoc && (
-                <Badge variant="outline" className="text-purple-600 border-purple-300">
-                  Single-Document
-                </Badge>
-              )}
-            </CardTitle>
-            <CardDescription className="max-w-2xl">
-              {candidate.description}
-            </CardDescription>
-          </div>
-          <button
-            onClick={onToggle}
-            className="p-1 hover:bg-slate-100 rounded-md transition-colors"
-          >
-            {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
-          </button>
-        </div>
-      </CardHeader>
-
-      <CardContent className="space-y-4">
-        {/* Score Bar */}
-        <div className="flex items-center gap-4 text-sm">
-          <ScoreBadge label="Coherence" value={candidate.coherenceScore} color="blue" />
-          <ScoreBadge label="Confidence" value={candidate.confidence} color="emerald" />
-          <Badge variant="outline" className="font-mono">
-            {candidate.evidenceIds.length} docs
-            {candidate.seedEvidenceIds.length > 0 && (
-              <span className="text-muted-foreground ml-1">
-                ({candidate.seedEvidenceIds.length} seed
-                {candidate.contextEvidenceIds.length > 0 && ` + ${candidate.contextEvidenceIds.length} context`})
-              </span>
-            )}
-          </Badge>
-        </div>
-
-        {/* Relationship Counts */}
-        {candidate.relationshipCounts && (
-          <div className="flex gap-2 text-xs">
-            <span className="px-2 py-1 bg-green-50 text-green-700 rounded">
-              {candidate.relationshipCounts.strong} strong
-            </span>
-            <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded">
-              {candidate.relationshipCounts.medium} medium
-            </span>
-            <span className="px-2 py-1 bg-slate-50 text-slate-600 rounded">
-              {candidate.relationshipCounts.weak} weak
-            </span>
-          </div>
-        )}
-
-        {/* Dominant Theme */}
-        {candidate.dominantTheme && (
-          <div className="text-sm">
-            <span className="text-muted-foreground">Theme:</span>{" "}
-            <span className="font-medium">{candidate.dominantTheme}</span>
-          </div>
-        )}
-
-        {/* Expanded Details */}
-        {isExpanded && (
-          <div className="space-y-4 pt-2 border-t">
-            {/* Reasons */}
-            <div>
-              <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-green-600" />
-                Why These Documents Belong Together
-              </h4>
-              <ul className="space-y-1 text-sm text-muted-foreground">
-                {candidate.reasons?.map((reason, i) => (
-                  <li key={i} className="flex items-start gap-2">
-                    <span className="text-slate-400 mt-1">•</span>
-                    {reason}
-                  </li>
-                )) || <li>No specific reasons recorded.</li>}
-              </ul>
-            </div>
-
-            {/* Causal Chain */}
-            {candidate.causalChain && candidate.causalChain.length > 0 && (
-              <div>
-                <h4 className="text-sm font-semibold mb-2">Causal Chain</h4>
-                <div className="flex flex-wrap items-center gap-2 text-sm">
-                  {candidate.causalChain.map((link, i) => (
-                    <span key={i} className="flex items-center gap-2">
-                      <Badge variant="secondary" className="font-mono text-xs">
-                        E{link.from}
-                      </Badge>
-                      <span className="text-muted-foreground">→</span>
-                      <span className="text-xs bg-slate-100 px-2 py-1 rounded">
-                        {link.relationshipType}
-                      </span>
-                      <span className="text-muted-foreground">→</span>
-                      <Badge variant="secondary" className="font-mono text-xs">
-                        E{link.to}
-                      </Badge>
-                      {i < candidate.causalChain!.length - 1 && (
-                        <span className="text-muted-foreground mx-1">|</span>
-                      )}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Diagnostics */}
-            {candidate.diagnostics && (
-              <DiagnosticsPanel diagnostics={candidate.diagnostics} />
-            )}
-
-            {/* Evidence IDs */}
-            <div>
-              <h4 className="text-sm font-semibold mb-2">Evidence</h4>
-              <div className="flex flex-wrap gap-1">
-                {candidate.evidenceIds.map((eid) => (
-                  <Badge
-                    key={eid}
-                    variant={candidate.seedEvidenceIds.includes(eid) ? "default" : "outline"}
-                    className="text-xs font-mono"
-                  >
-                    E{eid}
-                    {candidate.seedEvidenceIds.includes(eid) && " (seed)"}
-                    {candidate.contextEvidenceIds.includes(eid) && " (context)"}
-                  </Badge>
-                ))}
-              </div>
+              ))}
             </div>
           </div>
         )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function RejectedCandidateCard({ candidate }: { candidate: StoryCandidate }) {
-  return (
-    <Card className="border-l-4 border-l-red-400 opacity-75">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-lg flex items-center gap-2">
-          {candidate.name}
-          <span className="text-xs px-2 py-0.5 rounded-full border bg-red-100 text-red-800 border-red-300">
-            rejected
-          </span>
-        </CardTitle>
-        <CardDescription>{candidate.description}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex items-center gap-4 text-sm">
-          <ScoreBadge label="Coherence" value={candidate.coherenceScore} color="red" />
-          <ScoreBadge label="Confidence" value={candidate.confidence} color="red" />
-          <Badge variant="outline" className="font-mono">
-            {candidate.evidenceIds.length} docs
-          </Badge>
-        </div>
-
-        {/* Rejection Reasons */}
-        {candidate.diagnostics && (
-          <div className="bg-red-50 border border-red-200 rounded-md p-3 text-sm">
-            <h4 className="font-semibold text-red-800 mb-1 flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4" />
-              Rejection Reasons
-            </h4>
-            <ul className="space-y-1 text-red-700">
-              {candidate.diagnostics.genericLocationPenalty > 0.5 && (
-                <li>• Held together primarily by shared location</li>
-              )}
-              {candidate.diagnostics.genericActorPenalty > 0.5 && (
-                <li>• Held together primarily by shared generic actor</li>
-              )}
-              {candidate.diagnostics.unrelatedSectorPenalty > 0.3 && (
-                <li>• Documents concern unrelated sectors</li>
-              )}
-              {candidate.diagnostics.contradictoryProgramPenalty > 0.3 && (
-                <li>• Contradictory program references</li>
-              )}
-              {candidate.coherenceScore < 0.3 && (
-                <li>• Coherence score too low ({candidate.coherenceScore.toFixed(2)})</li>
-              )}
-              {candidate.confidence < 0.25 && (
-                <li>• Confidence too low ({candidate.confidence.toFixed(2)})</li>
-              )}
-            </ul>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function DiagnosticsBar({
-  diagnostics,
-}: {
-  diagnostics: DiscoverResponseV4["diagnostics"];
-}) {
-  return (
-    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-      <StatCard label="Relationships" value={diagnostics.totalRelationshipsEvaluated} icon={BarChart3} />
-      <StatCard label="Story Edges" value={diagnostics.storyGraphEdges} icon={CheckCircle2} color="green" />
-      <StatCard label="Context Edges" value={diagnostics.contextGraphEdges} icon={BookOpen} color="blue" />
-      <StatCard label="Seeds Found" value={diagnostics.seedsFound} icon={Sparkles} color="amber" />
-      <StatCard label="Expansions" value={diagnostics.expansionsPerformed} icon={FileText} color="purple" />
-    </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  icon: Icon,
-  color = "slate",
-}: {
-  label: string;
-  value: number;
-  icon: React.ElementType;
-  color?: "slate" | "green" | "blue" | "amber" | "purple";
-}) {
-  const colorMap = {
-    slate: "bg-slate-50 text-slate-700",
-    green: "bg-green-50 text-green-700",
-    blue: "bg-blue-50 text-blue-700",
-    amber: "bg-amber-50 text-amber-700",
-    purple: "bg-purple-50 text-purple-700",
-  };
-
-  return (
-    <div className={`rounded-lg p-3 ${colorMap[color]}`}>
-      <div className="flex items-center gap-2 text-xs font-medium opacity-70 mb-1">
-        <Icon className="h-3.5 w-3.5" />
-        {label}
-      </div>
-      <div className="text-2xl font-bold">{value.toLocaleString()}</div>
-    </div>
-  );
-}
-
-function ScoreBadge({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: number;
-  color: "blue" | "emerald" | "red";
-}) {
-  const colorMap = {
-    blue: "bg-blue-50 text-blue-700 border-blue-200",
-    emerald: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    red: "bg-red-50 text-red-700 border-red-200",
-  };
-
-  return (
-    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-sm ${colorMap[color]}`}>
-      <span className="font-medium">{label}:</span>
-      <span className="font-bold font-mono">{(value * 100).toFixed(0)}%</span>
-    </div>
-  );
-}
-
-function DiagnosticsPanel({
-  diagnostics,
-}: {
-  diagnostics: NonNullable<StoryCandidate["diagnostics"]>;
-}) {
-  const scores = [
-    { label: "Program Identity", value: diagnostics.programIdentityScore },
-    { label: "Causal Continuity", value: diagnostics.causalContinuityScore },
-    { label: "Problem Consistency", value: diagnostics.problemConsistencyScore },
-    { label: "Event Continuity", value: diagnostics.eventContinuityScore },
-    { label: "Outcome Consistency", value: diagnostics.outcomeConsistencyScore },
-    { label: "Temporal Coherence", value: diagnostics.temporalCoherenceScore },
-    { label: "Evidence Density", value: diagnostics.evidenceDensityScore },
-  ];
-
-  const penalties = [
-    { label: "Generic Location", value: diagnostics.genericLocationPenalty },
-    { label: "Generic Actor", value: diagnostics.genericActorPenalty },
-    { label: "Unrelated Sector", value: diagnostics.unrelatedSectorPenalty },
-    { label: "Contradictory Program", value: diagnostics.contradictoryProgramPenalty },
-  ];
-
-  return (
-    <div className="space-y-3">
-      <h4 className="text-sm font-semibold flex items-center gap-2">
-        <BarChart3 className="h-4 w-4" />
-        Coherence Diagnostics
-      </h4>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-        {scores.map((s) => (
-          <div key={s.label} className="bg-slate-50 rounded p-2">
-            <div className="text-muted-foreground mb-1">{s.label}</div>
-            <div className="font-mono font-bold">{(s.value * 100).toFixed(0)}%</div>
-            <div className="w-full bg-slate-200 rounded-full h-1.5 mt-1">
-              <div
-                className="bg-blue-500 h-1.5 rounded-full transition-all"
-                style={{ width: `${s.value * 100}%` }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-      {penalties.some((p) => p.value > 0) && (
-        <div className="text-xs">
-          <span className="text-muted-foreground">Penalties:</span>{" "}
-          {penalties
-            .filter((p) => p.value > 0)
-            .map((p) => `${p.label} (${(p.value * 100).toFixed(0)}%)`)
-            .join(", ")}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function DiscoverSkeleton() {
-  return (
-    <AppShell>
-      <div className="space-y-6">
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="h-4 w-96" />
-        <div className="grid grid-cols-5 gap-3">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-20" />
-          ))}
-        </div>
-        <Skeleton className="h-8 w-96" />
-        {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} className="h-40" />
-        ))}
       </div>
     </AppShell>
-  );
-}
-
-function DiscoverError({ message }: { message: string }) {
-  return (
-    <AppShell>
-      <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-4">
-        <AlertTriangle className="h-12 w-12 text-red-500" />
-        <h2 className="text-xl font-semibold">Failed to load discovery data</h2>
-        <p className="text-muted-foreground">{message}</p>
-      </div>
-    </AppShell>
-  );
-}
-
-function DiscoverEmpty() {
-  return (
-    <AppShell>
-      <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-4">
-        <BookOpen className="h-12 w-12 text-slate-400" />
-        <h2 className="text-xl font-semibold">No data available</h2>
-        <p className="text-muted-foreground">Add evidence to begin story discovery.</p>
-      </div>
-    </AppShell>
-  );
-}
-
-function EmptyState({ message }: { message: string }) {
-  return (
-    <div className="text-center py-12 border-2 border-dashed rounded-lg">
-      <FileText className="h-8 w-8 text-slate-400 mx-auto mb-3" />
-      <p className="text-muted-foreground">{message}</p>
-    </div>
   );
 }
