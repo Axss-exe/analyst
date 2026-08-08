@@ -119,7 +119,7 @@ export default function BriefDetailPage() {
           </Card>
         )}
 
-        {content.keyFindings && content.keyFindings.length > 0 && (
+        {Array.isArray(content.keyFindings) && content.keyFindings.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">
