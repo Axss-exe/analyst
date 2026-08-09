@@ -63,6 +63,11 @@ export const stories = sqliteTable(
     status: text("status", { enum: ["active", "archived", "closed"] })
       .notNull()
       .default("active"),
+    clusterIds: text("cluster_ids").notNull().default("[]"),
+    generationType: text("generation_type", { enum: ["auto", "manual"] })
+      .notNull()
+      .default("auto"),
+    confidence: real("confidence").notNull().default(0.5),
     createdBy: integer("created_by")
       .notNull()
       .references(() => users.id),
@@ -438,6 +443,8 @@ export const graphClusters = sqliteTable(
     description: text("description").notNull().default(""),
     evidenceIds: text("evidence_ids").notNull().default("[]"),
     entityIds: text("entity_ids").notNull().default("[]"),
+    evidenceCount: integer("evidence_count").notNull().default(0),
+    entityCount: integer("entity_count").notNull().default(0),
     density: real("density").notNull().default(0),
     status: text("status", {
       enum: ["new", "strengthened", "merged", "stable"],
@@ -513,7 +520,6 @@ export const jobs = sqliteTable(
   }),
 );
 
-
 export const evidenceImports = sqliteTable("evidence_imports", {
   id: integer("id").primaryKey(),
   filename: text("filename").notNull(),
@@ -543,8 +549,6 @@ export const narrativeChecks = sqliteTable("narrative_checks", {
   checkedAt: text("checked_at"),
   createdAt: text("created_at").notNull(),
 });
-
-
 
 // ==================== ATIS v4: Story-Bearing Graph Schema ====================
 
@@ -618,6 +622,8 @@ export const storyCandidates = sqliteTable(
   "story_candidates",
   {
     id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+    name: text("name").notNull().default("Untitled Candidate"),
+    description: text("description").notNull().default(""),
     evidenceIds: text("evidence_ids").notNull().default("[]"),
     seedType: text("seed_type").notNull().default("program_cluster"),
     coherenceOverall: real("coherence_overall").notNull().default(0),
@@ -626,10 +632,19 @@ export const storyCandidates = sqliteTable(
     coherenceGeographic: real("coherence_geographic").notNull().default(0),
     coherenceTemporal: real("coherence_temporal").notNull().default(0),
     coherenceDensity: real("coherence_density").notNull().default(0),
+    coherenceScore: real("coherence_score").notNull().default(0),
+    confidence: real("confidence").notNull().default(0.5),
+    dominantProgramId: integer("dominant_program_id"),
+    dominantProblemId: integer("dominant_problem_id"),
+    dominantTheme: text("dominant_theme"),
+    causalChain: text("causal_chain").notNull().default("[]"),
+    relationshipCounts: text("relationship_counts").notNull().default('{"strong":0,"medium":0,"weak":0,"total":0}'),
+    diagnostics: text("diagnostics"),
+    reasons: text("reasons").notNull().default("[]"),
     isValid: integer("is_valid", { mode: "boolean" }).notNull().default(false),
     rejectionReason: text("rejection_reason"),
     provenanceEdges: text("provenance_edges").notNull().default("[]"),
-    status: text("status", { enum: ["pending", "validated", "rejected", "promoted"] })
+    status: text("status", { enum: ["pending", "validated", "rejected", "promoted", "story"] })
       .notNull()
       .default("pending"),
     createdAt: text("created_at")
@@ -644,3 +659,164 @@ export const storyCandidates = sqliteTable(
     candidateCoherenceIdx: index("candidate_coherence_idx").on(t.coherenceOverall),
   }),
 );
+
+// ==================== ATIS v4: Intelligence Nodes ====================
+
+export const programs = sqliteTable("programs", {
+  id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  normalizedName: text("normalized_name").notNull(),
+  description: text("description"),
+  type: text("type"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
+export const events = sqliteTable("events", {
+  id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  normalizedName: text("normalized_name").notNull(),
+  description: text("description"),
+  temporalInfo: text("temporal_info"),
+  eventType: text("event_type"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
+export const problems = sqliteTable("problems", {
+  id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  normalizedName: text("normalized_name").notNull(),
+  description: text("description"),
+  severity: text("severity"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
+export const outcomes = sqliteTable("outcomes", {
+  id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  normalizedName: text("normalized_name").notNull(),
+  description: text("description"),
+  metric: text("metric"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
+export const actors = sqliteTable("actors", {
+  id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  normalizedName: text("normalized_name").notNull(),
+  actorType: text("actor_type"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
+// Join tables
+export const evidencePrograms = sqliteTable("evidence_programs", {
+  id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  evidenceId: integer("evidence_id").notNull().references(() => evidence.id, { onDelete: "cascade" }),
+  programId: integer("program_id").notNull().references(() => programs.id, { onDelete: "cascade" }),
+  confidence: real("confidence").notNull().default(0.5),
+  explicit: integer("explicit", { mode: "boolean" }).notNull().default(true),
+  reason: text("reason"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
+export const evidenceEvents = sqliteTable("evidence_events", {
+  id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  evidenceId: integer("evidence_id").notNull().references(() => evidence.id, { onDelete: "cascade" }),
+  eventId: integer("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
+  confidence: real("confidence").notNull().default(0.5),
+  explicit: integer("explicit", { mode: "boolean" }).notNull().default(true),
+  reason: text("reason"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
+export const evidenceProblems = sqliteTable("evidence_problems", {
+  id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  evidenceId: integer("evidence_id").notNull().references(() => evidence.id, { onDelete: "cascade" }),
+  problemId: integer("problem_id").notNull().references(() => problems.id, { onDelete: "cascade" }),
+  confidence: real("confidence").notNull().default(0.5),
+  explicit: integer("explicit", { mode: "boolean" }).notNull().default(true),
+  reason: text("reason"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
+export const evidenceOutcomes = sqliteTable("evidence_outcomes", {
+  id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  evidenceId: integer("evidence_id").notNull().references(() => evidence.id, { onDelete: "cascade" }),
+  outcomeId: integer("outcome_id").notNull().references(() => outcomes.id, { onDelete: "cascade" }),
+  confidence: real("confidence").notNull().default(0.5),
+  explicit: integer("explicit", { mode: "boolean" }).notNull().default(true),
+  reason: text("reason"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
+export const evidenceActors = sqliteTable("evidence_actors", {
+  id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  evidenceId: integer("evidence_id").notNull().references(() => evidence.id, { onDelete: "cascade" }),
+  actorId: integer("actor_id").notNull().references(() => actors.id, { onDelete: "cascade" }),
+  confidence: real("confidence").notNull().default(0.5),
+  explicit: integer("explicit", { mode: "boolean" }).notNull().default(true),
+  reason: text("reason"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
+// ==================== ATIS v4: Story Relationships (compat layer) ====================
+
+export const storyRelationships = sqliteTable(
+  "story_relationships",
+  {
+    id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+    sourceEvidenceId: integer("source_evidence_id")
+      .notNull()
+      .references(() => evidence.id, { onDelete: "cascade" }),
+    targetEvidenceId: integer("target_evidence_id")
+      .notNull()
+      .references(() => evidence.id, { onDelete: "cascade" }),
+    relationshipType: text("relationship_type").notNull(),
+    weight: real("weight").notNull().default(0),
+    confidence: real("confidence").notNull().default(0.5),
+    explicit: integer("explicit", { mode: "boolean" }).notNull().default(true),
+    reason: text("reason"),
+    createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  },
+  (t) => ({
+    storyRelUniqueIdx: uniqueIndex("story_rel_unique_idx").on(
+      t.sourceEvidenceId,
+      t.targetEvidenceId,
+      t.relationshipType,
+    ),
+    storyRelSourceIdx: index("story_rel_source_idx").on(t.sourceEvidenceId),
+    storyRelTargetIdx: index("story_rel_target_idx").on(t.targetEvidenceId),
+  }),
+);
+
+export const storyCandidateEvidence = sqliteTable(
+  "story_candidate_evidence",
+  {
+    id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+    storyCandidateId: integer("story_candidate_id")
+      .notNull()
+      .references(() => storyCandidates.id, { onDelete: "cascade" }),
+    evidenceId: integer("evidence_id")
+      .notNull()
+      .references(() => evidence.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("member"),
+    attachmentReason: text("attachment_reason"),
+    createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  },
+  (t) => ({
+    sceUniqueIdx: uniqueIndex("sce_unique_idx").on(t.storyCandidateId, t.evidenceId),
+  }),
+);
+
+export const evidenceStoryAssessment = sqliteTable("evidence_story_assessment", {
+  id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  evidenceId: integer("evidence_id").notNull().references(() => evidence.id, { onDelete: "cascade" }),
+  hasProblem: integer("has_problem", { mode: "boolean" }).notNull().default(false),
+  hasIntervention: integer("has_intervention", { mode: "boolean" }).notNull().default(false),
+  hasOutcome: integer("has_outcome", { mode: "boolean" }).notNull().default(false),
+  hasProgram: integer("has_program", { mode: "boolean" }).notNull().default(false),
+  hasEvent: integer("has_event", { mode: "boolean" }).notNull().default(false),
+  narrativeCompletenessScore: real("narrative_completeness_score"),
+  canBeSingleDocumentStory: integer("can_be_single_document_story", { mode: "boolean" }).notNull().default(false),
+  assessmentReason: text("assessment_reason"),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+});

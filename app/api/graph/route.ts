@@ -1,76 +1,91 @@
 /**
  * ATIS v4 — /api/graph
- * 
- * GET: Returns the full graph visualization data.
- * 
- * v3 fields preserved:
- *   - nodes, edges, clusters, hiddenPaths, bridgeNodes, contradictions,
- *     narratives, unclusteredCount, stats
- * 
- * v4 fields added:
- *   - contextGraph: all edges including weak contextual
- *   - storyGraph: only story-establishing edges
- *   - edgeExplanations: why each edge exists or was rejected
- *   - relationship metadata: type, weight, confidence, explicitness
  */
-
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import {
   evidence,
   storyRelationships,
   storyCandidates,
-  storyCandidateEvidence,
   graphClusters,
   narratives,
   facts,
 } from "@/db/schema";
-import { eq, sql, gte } from "drizzle-orm";
+import { eq, sql, desc } from "drizzle-orm";
 import {
-  type GraphResponseV4,
   type GraphNode,
   type GraphEdge,
   type GraphCluster,
-  type GraphStats,
   type HiddenPath,
   type BridgeNode,
   type Contradiction,
   type Narrative,
-  type ContextGraph,
-  type StoryGraph,
-  type EdgeExplanation,
+  type StoryGraphEdge,
+  type ContextGraphEdge,
 } from "@/types";
 
-// ═════════════════════════════════════════════════════════════════
-// GET /api/graph
-// ═════════════════════════════════════════════════════════════════
+// Inline types not exported from @/types
+interface GraphStats {
+  evidenceCount: number;
+  entityCount: number;
+  relationshipCount: number;
+  connectionCount: number;
+  clusterCount: number;
+  averageClusterDensity: number;
+  bridgeNodeCount: number;
+}
+
+interface GraphResponse {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  clusters: GraphCluster[];
+  hiddenPaths: HiddenPath[];
+  bridgeNodes: BridgeNode[];
+  contradictions: Contradiction[];
+  narratives: Narrative[];
+  unclusteredCount: number;
+  stats: GraphStats;
+  // v4 fields
+  contextGraph: {
+    nodes: GraphNode[];
+    edges: any[];
+    evidenceIds: number[];
+  };
+  storyGraph: {
+    nodes: GraphNode[];
+    edges: any[];
+    threshold: number;
+    evidenceIds: number[];
+  };
+  edgeExplanations: any[];
+}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const { searchParams } = new URL(request.url);
-    const layer = searchParams.get("layer") || "all"; // all | context | story
+    const layer = searchParams.get("layer") || "all";
 
-    // ── Load all evidence ──────────────────────────────────────
+    // Load all evidence
     const evidenceRows = await db.select({
       id: evidence.id,
       title: evidence.title,
     }).from(evidence).all();
 
-    const evidenceMap = new Map(evidenceRows.map((e) => [e.id, e.title]));
-
-    // ── Load all relationships ─────────────────────────────────
+    // Load all relationships
     const allRels = await db.select()
       .from(storyRelationships)
       .orderBy(desc(storyRelationships.weight))
       .all();
 
-    // ── Build v3-compatible nodes and edges ────────────────────
+    // Build nodes
     const nodes: GraphNode[] = evidenceRows.map((e) => ({
       id: `evidence:${e.id}`,
       label: e.title || `E${e.id}`,
       type: "evidence",
+      data: {},
     }));
 
+    // Build edges
     const edges: GraphEdge[] = allRels.map((rel, idx) => ({
       id: `edge:${idx}`,
       source: `evidence:${rel.sourceEvidenceId}`,
@@ -79,29 +94,28 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       confidence: rel.confidence,
     }));
 
-    // ── Build v4 Context Graph ─────────────────────────────────
-    const contextGraph: ContextGraph = {
+    // Build v4 Context Graph
+    const contextGraph = {
       nodes: evidenceRows.map((e) => ({
         id: `evidence:${e.id}`,
         label: e.title || `E${e.id}`,
         type: "evidence",
-        evidenceId: e.id,
+        data: {},
       })),
-      edges: allRels.map((rel, idx) => ({
-        id: `edge:${idx}`,
-        source: `evidence:${rel.sourceEvidenceId}`,
-        target: `evidence:${rel.targetEvidenceId}`,
-        label: rel.relationshipType,
-        type: rel.relationshipType as import("@/lib/graph/story-types").RelationshipType,
+      edges: allRels.map((rel) => ({
+        sourceEvidenceId: rel.sourceEvidenceId,
+        targetEvidenceId: rel.targetEvidenceId,
+        relationshipType: rel.relationshipType,
         weight: rel.weight || 0,
         confidence: rel.confidence,
         explicit: rel.explicit || false,
-        reason: rel.reason || "",
+        explanation: rel.reason || "",
+        sourceEvidence: "",
       })),
       evidenceIds: evidenceRows.map((e) => e.id),
     };
 
-    // ── Build v4 Story Graph ───────────────────────────────────
+    // Build v4 Story Graph
     const storyRels = allRels.filter((rel) => (rel.weight || 0) >= 0.55);
     const storyEvidenceIds = new Set<number>();
     for (const rel of storyRels) {
@@ -109,36 +123,36 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       storyEvidenceIds.add(rel.targetEvidenceId);
     }
 
-    const storyGraph: StoryGraph = {
+    const storyGraph = {
       nodes: evidenceRows
         .filter((e) => storyEvidenceIds.has(e.id))
         .map((e) => ({
           id: `evidence:${e.id}`,
           label: e.title || `E${e.id}`,
           type: "evidence",
-          evidenceId: e.id,
+          data: {},
         })),
-      edges: storyRels.map((rel, idx) => ({
-        id: `story-edge:${idx}`,
-        source: `evidence:${rel.sourceEvidenceId}`,
-        target: `evidence:${rel.targetEvidenceId}`,
-        label: rel.relationshipType,
-        type: rel.relationshipType as import("@/lib/graph/story-types").RelationshipType,
+      edges: storyRels.map((rel) => ({
+        sourceEvidenceId: rel.sourceEvidenceId,
+        targetEvidenceId: rel.targetEvidenceId,
+        relationshipType: rel.relationshipType,
         weight: rel.weight || 0,
         confidence: rel.confidence,
         explicit: rel.explicit || false,
-        reason: rel.reason || "",
+        explanation: rel.reason || "",
+        sourceEvidence: "",
+        inferred: false,
       })),
       threshold: 0.55,
       evidenceIds: Array.from(storyEvidenceIds).sort((a, b) => a - b),
     };
 
-    // ── Build edge explanations ────────────────────────────────
-    const edgeExplanations: EdgeExplanation[] = allRels.map((rel) => ({
+    // Build edge explanations
+    const edgeExplanations = allRels.map((rel) => ({
       sourceEvidenceId: rel.sourceEvidenceId,
       targetEvidenceId: rel.targetEvidenceId,
       connected: (rel.weight || 0) >= 0.55,
-      relationshipType: rel.relationshipType as import("@/lib/graph/story-types").RelationshipType,
+      relationshipType: rel.relationshipType,
       weight: rel.weight || 0,
       confidence: rel.confidence,
       reason: rel.reason || "",
@@ -147,7 +161,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         : undefined,
     }));
 
-    // ── Load v3 clusters ───────────────────────────────────────
+    // Load clusters
     const clusterRows = await db.select().from(graphClusters).all();
     const clusters: GraphCluster[] = clusterRows.map((c) => ({
       id: c.id,
@@ -155,15 +169,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       description: c.description || "",
       density: c.density,
       status: c.status as GraphCluster["status"],
-      evidenceCount: c.evidenceCount,
-      entityCount: c.entityCount,
       evidenceIds: safeParseJson<number[]>(c.evidenceIds, []),
       entityIds: safeParseJson<number[]>(c.entityIds, []),
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
     }));
 
-    // ── Load v3 narratives ─────────────────────────────────────
+    // Load narratives
     const narrativeRows = await db.select().from(narratives).all();
     const narrativeList: Narrative[] = narrativeRows.map((n) => ({
       id: n.id,
@@ -174,61 +186,38 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       confidence: n.confidence,
       generationType: n.generationType as Narrative["generationType"],
       createdAt: n.createdAt,
-      updatedAt: n.updatedAt,
     }));
 
-    // ── Compute hidden paths (v3, simplified) ──────────────────
-    const hiddenPaths: HiddenPath[] = [];
-    // Hidden path detection would require full graph traversal
-    // For now, return empty (computed on-demand in v3 paths.ts)
-
-    // ── Compute bridge nodes (v3, simplified) ──────────────────
-    const bridgeNodes: BridgeNode[] = [];
-    // Bridge node detection would require betweenness centrality
-    // For now, return empty (computed on-demand in v3 paths.ts)
-
-    // ── Compute contradictions (v3, simplified) ────────────────
-    const contradictions: Contradiction[] = [];
-    // Contradiction detection would require fact comparison
-    // For now, return empty (computed on-demand in v3 paths.ts)
-
-    // ── Compute stats ──────────────────────────────────────────
+    // Stats
     const totalEvidence = evidenceRows.length;
     const entityCount = await db.select({ count: sql<number>`count(*)` })
       .from(db.select({ id: sql<number>`distinct entity_id` }).from(facts).as("entities"))
       .get();
-    const relationshipCount = allRels.length;
-    const connectionCount = allRels.length;
-    const clusterCount = clusterRows.length;
-    const avgDensity = clusterRows.length > 0
-      ? clusterRows.reduce((sum, c) => sum + c.density, 0) / clusterRows.length
-      : 0;
 
     const stats: GraphStats = {
       evidenceCount: totalEvidence,
       entityCount: entityCount?.count || 0,
-      relationshipCount,
-      connectionCount,
-      clusterCount,
-      averageClusterDensity: parseFloat(avgDensity.toFixed(3)),
+      relationshipCount: allRels.length,
+      connectionCount: allRels.length,
+      clusterCount: clusterRows.length,
+      averageClusterDensity: clusterRows.length > 0
+        ? parseFloat((clusterRows.reduce((sum, c) => sum + c.density, 0) / clusterRows.length).toFixed(3))
+        : 0,
       bridgeNodeCount: 0,
     };
 
     const unclusteredCount = totalEvidence - storyEvidenceIds.size;
 
-    // ── Build response ─────────────────────────────────────────
-    const response: GraphResponseV4 = {
-      // v3 fields
+    const response: GraphResponse = {
       nodes,
       edges,
       clusters,
-      hiddenPaths,
-      bridgeNodes,
-      contradictions,
+      hiddenPaths: [],
+      bridgeNodes: [],
+      contradictions: [],
       narratives: narrativeList,
       unclusteredCount,
       stats,
-      // v4 fields
       contextGraph: layer === "story" ? { nodes: [], edges: [], evidenceIds: [] } : contextGraph,
       storyGraph: layer === "context" ? { nodes: [], edges: [], threshold: 0.55, evidenceIds: [] } : storyGraph,
       edgeExplanations: layer === "story" ? [] : edgeExplanations,
@@ -244,10 +233,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-// ═════════════════════════════════════════════════════════════════
-// UTILITIES
-// ═════════════════════════════════════════════════════════════════
-
 function safeParseJson<T>(value: string | null | undefined, fallback: T): T {
   if (!value) return fallback;
   try {
@@ -255,8 +240,4 @@ function safeParseJson<T>(value: string | null | undefined, fallback: T): T {
   } catch {
     return fallback;
   }
-}
-
-function desc(column: any) {
-  return sql`${column} desc`;
 }

@@ -51,13 +51,14 @@ export async function GET(
       .where(eq(timelineEvents.evidenceId, id))
       .all();
 
-    // FIX: Wrap response in the shape the frontend expects
+    // FIX: Return the shape the frontend expects
     return NextResponse.json({
       evidence: item,
-      linkedEntities: linkedEntities,
-      linkedStories: [], // TODO: query storyEvidence table if you want linked stories
-      timelineEvents: timeline,
-      facts: factList,
+      entities: linkedEntities ?? [],
+      stories: [], // TODO: query storyEvidence table if you want linked stories
+      timeline: timeline ?? [],
+      relationships: [], // TODO: wire up evidenceConnections if needed
+      facts: factList ?? [],
     });
   } catch (error: any) {
     if (error.message === "Unauthorized") {
