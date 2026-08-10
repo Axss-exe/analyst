@@ -45,7 +45,6 @@ interface GraphResponse {
   narratives: Narrative[];
   unclusteredCount: number;
   stats: GraphStats;
-  // v4 fields
   contextGraph: {
     nodes: GraphNode[];
     edges: any[];

@@ -1,178 +1,84 @@
-/**
- * ATIS v4 — /api/discover
- * 
- * GET: Returns discovered stories, candidates, and diagnostics.
- * POST: Creates a manual story from selected evidence (v3 preserved).
- * 
- * v4 additions:
- *   - storyCandidates: auto-discovered story candidates with coherence
- *   - rejectedCandidates: candidates that failed validation
- *   - singleDocumentStories: standalone single-document narratives
- *   - diagnostics: pipeline statistics
- *   - edgeExplanations: why documents are connected or rejected
- */
-
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import {
-  evidence,
   storyCandidates,
   storyCandidateEvidence,
-  storyRelationships,
-  graphClusters,
   narratives,
+  graphClusters,
+  evidence,
 } from "@/db/schema";
-import { eq, desc, sql } from "drizzle-orm";
-import {
-  type DiscoverResponseV4,
-  type StoryCandidate,
-  type StoryItem,
-  type GraphCluster,
-  type Narrative,
-} from "@/types";
+import { eq, sql, desc } from "drizzle-orm";
 
-// ═════════════════════════════════════════════════════════════════
-// GET /api/discover
-// ═════════════════════════════════════════════════════════════════
-
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: NextRequest) {
   try {
-    // ── v3: Load clusters ──────────────────────────────────────
-    const clusterRows = await db.select()
-      .from(graphClusters)
-      .orderBy(desc(graphClusters.density))
+    const { searchParams } = new URL(request.url);
+    const limit = Math.min(parseInt(searchParams.get("limit") || "100"), 500);
+    const search = searchParams.get("search") || "";
+
+    // Get story candidates with evidence counts
+    const candidates = await db
+      .select({
+        id: storyCandidates.id,
+        name: storyCandidates.name,
+        description: storyCandidates.description,
+        coherenceScore: storyCandidates.coherenceScore,
+        confidence: storyCandidates.confidence,
+        status: storyCandidates.status,
+        seedType: storyCandidates.seedType,
+        evidenceCount: sql<number>`COUNT(DISTINCT ${storyCandidateEvidence.evidenceId})`,
+        createdAt: storyCandidates.createdAt,
+      })
+      .from(storyCandidates)
+      .leftJoin(
+        storyCandidateEvidence,
+        eq(storyCandidates.id, storyCandidateEvidence.storyCandidateId)
+      )
+      .groupBy(storyCandidates.id)
+      .orderBy(desc(storyCandidates.coherenceScore))
+      .limit(limit)
       .all();
 
-    const clusters: GraphCluster[] = clusterRows.map((c) => ({
-      id: c.id,
-      name: c.name,
-      description: c.description || "",
-      density: c.density,
-      status: c.status as GraphCluster["status"],
-      evidenceCount: c.evidenceCount,
-      entityCount: c.entityCount,
-      evidenceIds: safeParseJson<number[]>(c.evidenceIds, []),
-      entityIds: safeParseJson<number[]>(c.entityIds, []),
-      createdAt: c.createdAt,
-      updatedAt: c.updatedAt,
-    }));
+    // Get narratives
+    const narrativeList = await db
+      .select()
+      .from(narratives)
+      .orderBy(desc(narratives.confidence))
+      .limit(limit)
+      .all();
 
-    // ── v3: Load narratives ────────────────────────────────────
-    const narrativeRows = await db.select().from(narratives).all();
-    const narrativeList: Narrative[] = narrativeRows.map((n) => ({
-      id: n.id,
-      title: n.title,
-      overview: n.overview || "",
-      clusterIds: safeParseJson<number[]>(n.clusterIds, []),
-      evidenceIds: safeParseJson<number[]>(n.evidenceIds, []),
-      confidence: n.confidence,
-      generationType: n.generationType as Narrative["generationType"],
-      createdAt: n.createdAt,
-      updatedAt: n.updatedAt,
-    }));
+    // Get clusters
+    const clusters = await db
+      .select()
+      .from(graphClusters)
+      .orderBy(desc(graphClusters.density))
+      .limit(limit)
+      .all();
 
-    // ── v4: Load story candidates ──────────────────────────────
-    const candidateRows = await db.select().from(storyCandidates).all();
+    // Get unassigned evidence count
+    const totalEvidence = (db.select({ count: sql<number>`COUNT(*)` }).from(evidence).get() as any)?.count || 0;
 
-    const storyCandidatesList: StoryCandidate[] = [];
-    const rejectedCandidatesList: StoryCandidate[] = [];
-    const singleDocumentStoriesList: StoryCandidate[] = [];
-
-    for (const row of candidateRows) {
-      // Load evidence for this candidate
-      const evidenceRows = await db.select({
-        evidenceId: storyCandidateEvidence.evidenceId,
-        role: storyCandidateEvidence.role,
-      })
-        .from(storyCandidateEvidence)
-        .where(eq(storyCandidateEvidence.storyCandidateId, row.id))
-        .all();
-
-      const evidenceIds = evidenceRows.map((e) => e.evidenceId);
-      const seedIds = evidenceRows.filter((e) => e.role === "seed").map((e) => e.evidenceId);
-      const contextIds = evidenceRows.filter((e) => e.role === "context").map((e) => e.evidenceId);
-
-      const candidate: StoryCandidate = {
-        id: row.id,
-        name: row.name,
-        description: row.description || "",
-        evidenceIds,
-        seedEvidenceIds: seedIds,
-        contextEvidenceIds: contextIds,
-        coherenceScore: row.coherenceScore,
-        confidence: row.confidence,
-        dominantTheme: row.dominantTheme || "",
-        causalChain: safeParseJson(row.causalChain, []),
-        reasons: safeParseJson(row.reasons, []),
-        status: row.status as StoryCandidate["status"],
-        relationshipCounts: safeParseJson(row.relationshipCounts, { strong: 0, medium: 0, weak: 0, total: 0 }),
-        diagnostics: safeParseJson(row.diagnostics, {
-          programIdentityScore: 0,
-          causalContinuityScore: 0,
-          problemConsistencyScore: 0,
-          eventContinuityScore: 0,
-          outcomeConsistencyScore: 0,
-          temporalCoherenceScore: 0,
-          evidenceDensityScore: 0,
-          genericLocationPenalty: 0,
-          genericActorPenalty: 0,
-          unrelatedSectorPenalty: 0,
-          contradictoryProgramPenalty: 0,
-        }),
-        createdAt: row.createdAt,
-        updatedAt: row.updatedAt,
-      };
-
-      if (row.status === "rejected") {
-        rejectedCandidatesList.push(candidate);
-      } else if (evidenceIds.length === 1) {
-        singleDocumentStoriesList.push(candidate);
-      } else {
-        storyCandidatesList.push(candidate);
-      }
-    }
-
-    // ── v3: Count unlinked ─────────────────────────────────────
-    const totalEvidence = await db.select({ count: sql<number>`count(*)` }).from(evidence).get();
-    const clusteredCount = new Set(
-      candidateRows.flatMap((c) => safeParseJson<number[]>(c.evidenceIds, []))
-    ).size;
-    const unlinkedCount = (totalEvidence?.count || 0) - clusteredCount;
-
-    // ── v4: Diagnostics ────────────────────────────────────────
-    const relCount = await db.select({ count: sql<number>`count(*)` }).from(storyRelationships).get();
-    const storyRelCount = await db.select({ count: sql<number>`count(*)` })
-      .from(storyRelationships)
-      .where(sql`${storyRelationships.weight} >= 0.55`)
-      .get();
-
-    const response: DiscoverResponseV4 = {
-      // v3 fields
-      clusters,
-      unlinkedCount,
-      clusteredCount,
+    return NextResponse.json({
+      storyCandidates: candidates ?? [],
+      narratives: narrativeList ?? [],
+      clusters: clusters ?? [],
+      totalEvidence,
+      totalCandidates: candidates.length,
       totalNarratives: narrativeList.length,
-      // v4 fields
-      storyCandidates: storyCandidatesList,
-      rejectedCandidates: rejectedCandidatesList,
-      singleDocumentStories: singleDocumentStoriesList,
-      diagnostics: {
-        totalRelationshipsEvaluated: relCount?.count || 0,
-        storyGraphEdges: storyRelCount?.count || 0,
-        contextGraphEdges: (relCount?.count || 0) - (storyRelCount?.count || 0),
-        seedsFound: candidateRows.length,
-        expansionsPerformed: candidateRows.reduce((sum, c) => {
-          const ids = safeParseJson<number[]>(c.evidenceIds, []);
-          return sum + Math.max(0, ids.length - 1);
-        }, 0),
-      },
-    };
-
-    return NextResponse.json(response);
-  } catch (err) {
+      totalClusters: clusters.length,
+    });
+  } catch (err: any) {
     console.error("[api/discover] GET failed:", err);
     return NextResponse.json(
-      { error: "Failed to load discovery data" },
+      {
+        storyCandidates: [],
+        narratives: [],
+        clusters: [],
+        totalEvidence: 0,
+        totalCandidates: 0,
+        totalNarratives: 0,
+        totalClusters: 0,
+        error: err.message || String(err),
+      },
       { status: 500 }
     );
   }
