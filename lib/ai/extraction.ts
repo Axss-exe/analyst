@@ -4,12 +4,6 @@
  * Single-pass LLM extraction that produces:
  *   - v3: entities, facts, relationships, timeline, topics
  *   - v4: programs, events, problems, outcomes, actors
- * 
- * This replaces the v3 extraction.ts while preserving backward
- * compatibility with existing consumers.
- * 
- * The LLM receives ONE prompt and returns ONE JSON object
- * containing all extraction layers.
  */
 
 import { generateWithAI } from "./index";
@@ -36,31 +30,16 @@ import {
   type SingleDocumentAssessment,
 } from "./programs";
 
-// ═════════════════════════════════════════════════════════════════
-// 1. UNIFIED EXTRACTION RESULT
-// ═════════════════════════════════════════════════════════════════
-
-/**
- * The complete output of the v4 unified extraction pipeline.
- * 
- * Backward-compatible: the `structured` field contains the v3
- * extraction shape. The `intelligence` field contains v4 nodes.
- */
 export interface UnifiedExtractionResult {
-  /** v3-compatible structured extraction */
   structured: StructuredExtraction;
-  /** v4 intelligence nodes */
   intelligence: StructuredIntelligence;
-  /** v4 single-document story assessment */
   singleDocumentAssessment: SingleDocumentAssessment;
-  /** Overall confidence across all extraction layers */
   confidence: number;
-  /** Raw LLM response for debugging */
   raw?: string;
 }
 
 // ═════════════════════════════════════════════════════════════════
-// 2. PROMPT SCHEMA
+// PROMPT SCHEMA
 // ═════════════════════════════════════════════════════════════════
 
 const UNIFIED_EXTRACTION_SCHEMA = {
@@ -69,21 +48,21 @@ const UNIFIED_EXTRACTION_SCHEMA = {
   properties: {
     entities: {
       type: "array",
-      description: "Named entities mentioned in the text: people, organizations, locations, minerals, legislation, etc.",
+      description: "Named entities: people, organizations, locations, minerals, legislation, etc.",
       items: {
         type: "object",
         required: ["name", "type"],
         properties: {
           name: { type: "string" },
-          type: { type: "string", description: "Entity type: person, organization, company, government, location, mineral, legislation, bank, investor, mine, infrastructure, project, etc." },
-          mentions: { type: "number", description: "Approximate number of mentions" },
-          context: { type: "string", description: "Surrounding sentence or clause" },
+          type: { type: "string", description: "person, organization, government, location, mineral, legislation, bank, investor, project, etc." },
+          mentions: { type: "number" },
+          context: { type: "string" },
         },
       },
     },
     facts: {
       type: "array",
-      description: "Atomic factual statements extracted as subject-predicate-object triples.",
+      description: "Atomic factual statements as subject-predicate-object triples.",
       items: {
         type: "object",
         required: ["subject", "predicate", "object"],
@@ -91,7 +70,7 @@ const UNIFIED_EXTRACTION_SCHEMA = {
           subject: { type: "string" },
           predicate: { type: "string" },
           object: { type: "string" },
-          confidence: { type: "number", description: "Confidence 0.0–1.0" },
+          confidence: { type: "number", description: "0.0–1.0" },
         },
       },
     },
@@ -104,20 +83,20 @@ const UNIFIED_EXTRACTION_SCHEMA = {
         properties: {
           source: { type: "string" },
           target: { type: "string" },
-          type: { type: "string", description: "Relationship type: funds, implements, partners_with, regulates, owns, operates, etc." },
-          evidence: { type: "string", description: "Supporting text snippet" },
+          type: { type: "string" },
+          evidence: { type: "string" },
           confidence: { type: "number" },
         },
       },
     },
     timeline: {
       type: "array",
-      description: "Chronological events mentioned in the text.",
+      description: "Chronological events.",
       items: {
         type: "object",
         required: ["date", "description"],
         properties: {
-          date: { type: "string", description: "Date in YYYY-MM-DD format or free text if exact date unknown" },
+          date: { type: "string" },
           description: { type: "string" },
           entityNames: { type: "array", items: { type: "string" } },
         },
@@ -125,14 +104,12 @@ const UNIFIED_EXTRACTION_SCHEMA = {
     },
     topics: {
       type: "array",
-      description: "Key topics or themes (3–7 items).",
+      description: "Key themes (3–7 items).",
       items: { type: "string" },
     },
-    // ── v4 intelligence nodes ──────────────────────────────────
     programs: {
       type: "array",
-      description:
-        "Named interventions, initiatives, projects, facilities, policy mechanisms, financing programs, or structured institutional initiatives. Be specific. Include acronyms.",
+      description: "Named interventions, initiatives, projects, facilities, policy mechanisms, financing programs. Be specific. Include acronyms.",
       items: {
         type: "object",
         required: ["name"],
@@ -145,23 +122,21 @@ const UNIFIED_EXTRACTION_SCHEMA = {
     },
     events: {
       type: "array",
-      description:
-        "Specific things that happened or are scheduled: approvals, launches, awards, handovers, cyclones, releases, completions. Include dates when available.",
+      description: "Specific things that happened: approvals, launches, awards, grants, releases, completions. Include dates.",
       items: {
         type: "object",
         required: ["name"],
         properties: {
           name: { type: "string" },
           eventType: { type: "string", enum: ["approval", "launch", "award", "completion", "occurrence", "release", "trigger", "other"] },
-          temporalInfo: { type: "string", description: "Date or time reference" },
+          temporalInfo: { type: "string" },
           description: { type: "string" },
         },
       },
     },
     problems: {
       type: "array",
-      description:
-        "Conditions, constraints, risks, crises, deficiencies, or challenges that interventions address. Be specific.",
+      description: "Conditions, constraints, risks, crises, deficiencies, or challenges.",
       items: {
         type: "object",
         required: ["name"],
@@ -174,29 +149,27 @@ const UNIFIED_EXTRACTION_SCHEMA = {
     },
     outcomes: {
       type: "array",
-      description:
-        "Measurable or stated results. Include specific metrics when present.",
+      description: "Measurable or stated results. Include specific metrics.",
       items: {
         type: "object",
         required: ["name"],
         properties: {
           name: { type: "string" },
-          metric: { type: "string", description: "Specific measurement" },
+          metric: { type: "string" },
           description: { type: "string" },
         },
       },
     },
     actors: {
       type: "array",
-      description:
-        "Organizations, government bodies, persons, funders, contractors, regulators, implementers. Include stated roles.",
+      description: "Organizations, government bodies, persons, funders, contractors, regulators, implementers. Include roles.",
       items: {
         type: "object",
         required: ["name"],
         properties: {
           name: { type: "string" },
           actorType: { type: "string", enum: ["organization", "government", "person", "funder", "contractor", "regulator", "implementer", "other"] },
-          description: { type: "string", description: "Role or context" },
+          description: { type: "string" },
         },
       },
     },
@@ -204,7 +177,83 @@ const UNIFIED_EXTRACTION_SCHEMA = {
 } as const;
 
 // ═════════════════════════════════════════════════════════════════
-// 3. PROMPT BUILDER
+// FEW-SHOT EXAMPLES (critical for gpt-oss-120b)
+// ═════════════════════════════════════════════════════════════════
+
+const FEW_SHOT_EXAMPLES = `## Examples of Correct Extraction
+
+### Input:
+"African Development Fund grants $4.3 million to strengthen integration of Natural Capital into decision-making in 13 African Countries"
+
+### Output:
+{
+  "entities": [
+    { "name": "African Development Fund", "type": "organization", "mentions": 1, "context": "grants $4.3 million" },
+    { "name": "Natural Capital", "type": "program", "mentions": 1, "context": "integration into decision-making" }
+  ],
+  "facts": [
+    { "subject": "African Development Fund", "predicate": "grants", "object": "$4.3 million", "confidence": 0.95 }
+  ],
+  "relationships": [],
+  "timeline": [],
+  "topics": ["natural capital", "development finance", "decision-making"],
+  "programs": [
+    { "name": "African Development Fund", "type": "financing", "description": "Grant facility providing development financing" },
+    { "name": "Natural Capital Integration Program", "type": "program", "description": "Initiative to integrate natural capital into decision-making across 13 African countries" }
+  ],
+  "events": [
+    { "name": "$4.3 million grant approval", "eventType": "award", "temporalInfo": "2026", "description": "African Development Fund approved $4.3 million grant for natural capital integration" }
+  ],
+  "problems": [
+    { "name": "natural capital excluded from decision-making", "severity": "high", "description": "Natural capital not integrated into policy and investment decisions" }
+  ],
+  "outcomes": [
+    { "name": "$4.3 million disbursed for natural capital", "metric": "$4.3 million", "description": "Funding allocated to strengthen natural capital integration" }
+  ],
+  "actors": [
+    { "name": "African Development Fund", "actorType": "funder", "description": "Provided $4.3 million grant" },
+    { "name": "13 African Countries", "actorType": "government", "description": "Beneficiaries of natural capital integration program" }
+  ]
+}
+
+### Input:
+"Regional Economic Outlook 2026: Southern Africa Must Mobilise Development Finance at Scale to Close Annual $55 Billion Financing Gap"
+
+### Output:
+{
+  "entities": [
+    { "name": "Southern Africa", "type": "location", "mentions": 1 },
+    { "name": "$55 Billion Financing Gap", "type": "metric", "mentions": 1 }
+  ],
+  "facts": [
+    { "subject": "Southern Africa", "predicate": "has", "object": "$55 billion annual financing gap", "confidence": 0.9 }
+  ],
+  "relationships": [],
+  "timeline": [
+    { "date": "2026", "description": "Regional Economic Outlook published", "entityNames": ["Southern Africa"] }
+  ],
+  "topics": ["development finance", "financing gap", "economic outlook"],
+  "programs": [
+    { "name": "Regional Economic Outlook 2026", "type": "program", "description": "Annual economic assessment and forecast for Southern Africa" }
+  ],
+  "events": [
+    { "name": "Regional Economic Outlook 2026 release", "eventType": "release", "temporalInfo": "2026", "description": "Publication of regional economic outlook report" }
+  ],
+  "problems": [
+    { "name": "$55 billion annual financing gap", "severity": "critical", "description": "Southern Africa faces a $55 billion annual shortfall in development financing" },
+    { "name": "insufficient development finance mobilization", "severity": "critical", "description": "Development finance not mobilized at scale needed" }
+  ],
+  "outcomes": [
+    { "name": "mobilize development finance at scale", "metric": "scale", "description": "Objective to close financing gap through scaled mobilization" }
+  ],
+  "actors": [
+    { "name": "African Development Bank", "actorType": "organization", "description": "Publisher of Regional Economic Outlook" },
+    { "name": "Southern Africa", "actorType": "government", "description": "Region requiring development finance mobilization" }
+  ]
+}`;
+
+// ═════════════════════════════════════════════════════════════════
+// PROMPT BUILDER
 // ═════════════════════════════════════════════════════════════════
 
 function buildExtractionPrompt(text: string): string {
@@ -214,25 +263,29 @@ Analyze the following text and return a single JSON object matching the schema b
 
 ## Extraction Rules
 
-1. **Be specific, not generic.**
+1. **Be specific, not generic.** Extract named programs, specific dollar amounts, and concrete actors.
    - GOOD program: "Zimbabwe Emergency Food Production Project (ZEFPP)"
    - BAD program: "agricultural project"
-   - GOOD problem: "food insecurity caused by global supply shocks"
+   - GOOD problem: "$55 billion annual financing gap"
    - BAD problem: "development challenge"
-   - GOOD outcome: "188,000 households reached with agricultural inputs"
-   - BAD outcome: "positive impact"
 
-2. **Preserve acronyms.** If a program is referred to as both full name and acronym, include the acronym in the name field.
+2. **Extract from titles AND content.** The title often contains the most specific information.
 
-3. **Temporal anchors.** For events, include any date, quarter, or year mentioned.
+3. **Never return empty arrays unless the text is truly blank.** If the document mentions an organization, put it in actors. If it mentions a funding amount, put it in outcomes or events.
 
-4. **Metrics.** For outcomes, capture specific numbers, percentages, or measurements.
+4. **Preserve acronyms.** Include them in the name field.
 
-5. **Actor roles.** For actors, note whether they are funder, implementer, regulator, contractor, etc.
+5. **Temporal anchors.** For events, include any date, quarter, or year.
 
-6. **Confidence.** For facts and relationships, assign a confidence score 0.0–1.0 based on explicitness in the text.
+6. **Metrics.** For outcomes, capture specific numbers, percentages, or measurements.
 
-7. **No hallucination.** Only extract what is explicitly stated or strongly implied by the text. If uncertain, omit.
+7. **Actor roles.** Note whether they are funder, implementer, regulator, contractor, etc.
+
+8. **Confidence.** For facts and relationships, assign a confidence score 0.0–1.0.
+
+9. **No hallucination.** Only extract what is explicitly stated or strongly implied.
+
+${FEW_SHOT_EXAMPLES}
 
 ## Text to Analyze
 
@@ -242,23 +295,38 @@ ${text.slice(0, 12000)}
 
 ${JSON.stringify(UNIFIED_EXTRACTION_SCHEMA, null, 2)}
 
-Return ONLY the JSON object. No markdown, no commentary.`;
+Return ONLY the JSON object. No markdown, no commentary. Every field must be present as an array (can be empty ONLY if there is genuinely no information).`;
 }
 
 // ═════════════════════════════════════════════════════════════════
-// 4. PARSING & VALIDATION
+// PARSING & VALIDATION
 // ═════════════════════════════════════════════════════════════════
 
 function safeParseJSON<T>(text: string): T | null {
   try {
-    // Strip markdown code fences if present
     const cleaned = text
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/```\s*$/i, "")
+      .replace(/^\s*```json\s*/i, "")
+      .replace(/^\s*```\s*/i, "")
+      .replace(/\s*```\s*$/i, "")
       .trim();
     return JSON.parse(cleaned) as T;
   } catch {
+    try {
+      const objectMatch = text.match(/\{[\s\S]*?\}/);
+      const arrayMatch = text.match(/\[[\s\S]*?\]/);
+      if (objectMatch && arrayMatch) {
+        const objIndex = text.indexOf(objectMatch[0]);
+        const arrIndex = text.indexOf(arrayMatch[0]);
+        const first = objIndex < arrIndex ? objectMatch[0] : arrayMatch[0];
+        return JSON.parse(first) as T;
+      } else if (objectMatch) {
+        return JSON.parse(objectMatch[0]) as T;
+      } else if (arrayMatch) {
+        return JSON.parse(arrayMatch[0]) as T;
+      }
+    } catch {
+      // Nothing worked
+    }
     return null;
   }
 }
@@ -291,7 +359,6 @@ function validateExtraction(raw: unknown): {
   if (!raw || typeof raw !== "object") return empty;
   const obj = raw as Record<string, unknown>;
 
-  // Extract entities
   const entities: ExtractedEntity[] = Array.isArray(obj.entities)
     ? obj.entities
         .filter((e): e is Record<string, unknown> => typeof e === "object" && e !== null)
@@ -304,7 +371,6 @@ function validateExtraction(raw: unknown): {
         .filter((e) => e.name.length > 0)
     : [];
 
-  // Extract facts
   const facts: Fact[] = Array.isArray(obj.facts)
     ? obj.facts
         .filter((f): f is Record<string, unknown> => typeof f === "object" && f !== null)
@@ -312,13 +378,12 @@ function validateExtraction(raw: unknown): {
           subject: String(f.subject || ""),
           predicate: String(f.predicate || ""),
           object: String(f.object || ""),
-          evidenceId: 0, // Set by caller
+          evidenceId: 0,
           confidence: typeof f.confidence === "number" ? Math.max(0, Math.min(1, f.confidence)) : 0.8,
         }))
         .filter((f) => f.subject && f.predicate && f.object)
     : [];
 
-  // Extract relationships
   const relationships: ExtractedRelationship[] = Array.isArray(obj.relationships)
     ? obj.relationships
         .filter((r): r is Record<string, unknown> => typeof r === "object" && r !== null)
@@ -332,7 +397,6 @@ function validateExtraction(raw: unknown): {
         .filter((r) => r.source && r.target && r.type)
     : [];
 
-  // Extract timeline
   const timeline: TimelineEvent[] = Array.isArray(obj.timeline)
     ? obj.timeline
         .filter((t): t is Record<string, unknown> => typeof t === "object" && t !== null)
@@ -346,12 +410,10 @@ function validateExtraction(raw: unknown): {
         .filter((t) => t.date && t.description)
     : [];
 
-  // Extract topics
   const topics: string[] = Array.isArray(obj.topics)
     ? obj.topics.filter((t): t is string => typeof t === "string" && t.length > 0)
     : [];
 
-  // Extract v4 intelligence nodes
   const intelligence: RawIntelligenceExtraction = {
     programs: Array.isArray(obj.programs)
       ? obj.programs
@@ -428,16 +490,9 @@ function validateExtraction(raw: unknown): {
 }
 
 // ═════════════════════════════════════════════════════════════════
-// 5. MAIN EXTRACTION FUNCTION
+// MAIN EXTRACTION FUNCTION
 // ═════════════════════════════════════════════════════════════════
 
-/**
- * Extract structured intelligence from evidence text in a single LLM call.
- * 
- * @param text — The evidence text to analyze
- * @param evidenceId — The database ID of the evidence item (for provenance)
- * @returns Unified extraction result with v3 and v4 data
- */
 export async function extractStructuredFacts(
   text: string,
   evidenceId: number
@@ -477,16 +532,36 @@ export async function extractStructuredFacts(
   }
 
   const prompt = buildExtractionPrompt(text);
-  const rawResponse = await generateWithAI(prompt);
+
+  let rawResponse: string;
+  try {
+    rawResponse = await generateWithAI(prompt);
+  } catch (err: any) {
+    console.error(`[extraction] LLM call failed for evidence ${evidenceId}:`, err.message);
+    throw new Error(`Extraction LLM failed for E${evidenceId}: ${err.message}`);
+  }
+
   const parsed = safeParseJSON<Record<string, unknown>>(rawResponse);
 
   if (!parsed) {
-    // Retry once with a simpler prompt if JSON parsing failed
-    const retryPrompt = `${prompt}\n\nIMPORTANT: Your response must be ONLY valid JSON. No markdown, no explanations.`;
-    const retryResponse = await generateWithAI(retryPrompt);
+    console.error(`[extraction] JSON parse failed for evidence ${evidenceId}. Raw response (first 1200 chars):`);
+    console.error(rawResponse.slice(0, 1200));
+
+    const retryPrompt = `${prompt}\n\nCRITICAL: Return ONLY valid JSON. No explanations, no markdown, no preamble.`;
+
+    let retryResponse: string;
+    try {
+      retryResponse = await generateWithAI(retryPrompt);
+    } catch (err: any) {
+      console.error(`[extraction] Retry LLM call failed for evidence ${evidenceId}:`, err.message);
+      throw new Error(`Extraction retry failed for E${evidenceId}: ${err.message}`);
+    }
+
     const retryParsed = safeParseJSON<Record<string, unknown>>(retryResponse);
     if (!retryParsed) {
-      throw new Error(`Failed to parse extraction JSON for evidence ${evidenceId}`);
+      console.error(`[extraction] Retry JSON parse also failed. Raw response (first 1200 chars):`);
+      console.error(retryResponse.slice(0, 1200));
+      throw new Error(`Failed to parse extraction JSON for evidence ${evidenceId} after retry`);
     }
     return buildResult(retryParsed, evidenceId, retryResponse);
   }
@@ -494,9 +569,6 @@ export async function extractStructuredFacts(
   return buildResult(parsed, evidenceId, rawResponse);
 }
 
-/**
- * Build the final result from parsed JSON.
- */
 function buildResult(
   parsed: Record<string, unknown>,
   evidenceId: number,
@@ -504,13 +576,32 @@ function buildResult(
 ): UnifiedExtractionResult {
   const validated = validateExtraction(parsed);
 
-  // Attach evidenceId to facts for provenance
-  const factsWithProvenance = validated.facts.map((f) => ({ ...f, evidenceId }));
+  // ── DIAGNOSTIC LOGGING ──────────────────────────────────────
+  // Log raw response whenever v4 intelligence is unexpectedly empty
+  const v4Total =
+    validated.intelligence.programs.length +
+    validated.intelligence.events.length +
+    validated.intelligence.problems.length +
+    validated.intelligence.outcomes.length +
+    validated.intelligence.actors.length;
 
-  // Normalize intelligence nodes
+  if (v4Total === 0 && validated.entities.length > 0) {
+    // v3 found something but v4 found nothing — suspicious
+    console.warn(
+      `[extraction] WARNING E${evidenceId}: v3 found ${validated.entities.length} entities/${validated.facts.length} facts but v4 intelligence is completely empty. Raw response (first 800 chars):`
+    );
+    console.warn(rawResponse.slice(0, 800));
+  } else if (v4Total === 0 && validated.entities.length === 0) {
+    console.warn(
+      `[extraction] WARNING E${evidenceId}: Completely empty extraction. Text length was checked. Raw response (first 800 chars):`
+    );
+    console.warn(rawResponse.slice(0, 800));
+  }
+  // ────────────────────────────────────────────────────────────
+
+  const factsWithProvenance = validated.facts.map((f) => ({ ...f, evidenceId }));
   const normalized = normalizeIntelligenceExtraction(validated.intelligence, evidenceId);
 
-  // Build v3 structured extraction
   const structured: StructuredExtraction = {
     entities: validated.entities,
     facts: factsWithProvenance,
@@ -520,7 +611,6 @@ function buildResult(
     confidence: validated.valid ? 0.85 : 0.3,
   };
 
-  // Build v4 structured intelligence
   const intelligence: StructuredIntelligence = {
     evidenceId,
     programs: normalized.programs,
@@ -528,14 +618,12 @@ function buildResult(
     problems: normalized.problems,
     outcomes: normalized.outcomes,
     actors: normalized.actors,
-    relationships: [], // Populated by relationship extraction layer (TURN 4)
+    relationships: [],
     extractionConfidence: structured.confidence,
   };
 
-  // Assess single-document story potential
   const singleDocumentAssessment = assessSingleDocumentStory(normalized);
 
-  // Overall confidence is average of structured and intelligence confidence
   const intelligenceConfidence =
     (normalized.programs.length +
       normalized.events.length +
@@ -554,18 +642,10 @@ function buildResult(
     intelligence,
     singleDocumentAssessment,
     confidence: overallConfidence,
-    raw: rawResponse.slice(0, 5000), // Truncate for storage
+    raw: rawResponse.slice(0, 5000),
   };
 }
 
-// ═════════════════════════════════════════════════════════════════
-// 6. BACKWARD-COMPATIBLE WRAPPER
-// ═════════════════════════════════════════════════════════════════
-
-/**
- * v3-compatible wrapper that returns only the structured extraction.
- * Existing consumers can continue using this signature.
- */
 export async function extractFacts(text: string): Promise<StructuredExtraction> {
   const result = await extractStructuredFacts(text, 0);
   return result.structured;

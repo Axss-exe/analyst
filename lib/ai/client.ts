@@ -14,23 +14,26 @@ export async function generateWithAI(
   options: AIGenerationOptions = {},
 ): Promise<string> {
   const apiKey = process.env.CEREBRAS_API_KEY;
-  const model = process.env.CEREBRAS_MODEL || "gemma-4-31b";
+  const model = process.env.CEREBRAS_MODEL;
+
+  if (!apiKey) {
+    throw new Error("CEREBRAS_API_KEY not configured");
+  }
+  if (!model) {
+    throw new Error("CEREBRAS_MODEL not configured — expected gpt-oss-120b");
+  }
+
   const temperature =
     options.temperature ?? parseFloat(process.env.AI_TEMPERATURE || "0.3");
   const maxTokens =
     options.maxTokens ?? parseInt(process.env.AI_MAX_TOKENS || "4096");
   const maxRetries = options.retries ?? 3;
-  const timeoutMs = options.timeoutMs ?? 60000; // 60 second default timeout
-
-  if (!apiKey) {
-    throw new Error("CEREBRAS_API_KEY not configured");
-  }
+  const timeoutMs = options.timeoutMs ?? 60000;
 
   const inputTokens = estimateTokens(prompt + (options.systemPrompt || ""));
   const outputTokens = maxTokens;
   const totalTokens = inputTokens + outputTokens;
 
-  // Wait for rate limit slot
   await acquireSlot(totalTokens);
 
   let lastError: Error | null = null;
@@ -41,7 +44,7 @@ export async function generateWithAI(
 
     try {
       console.log(
-        `[ai/client] Attempt ${attempt}/${maxRetries} — ${inputTokens} input tokens, model: ${model}`,
+        `[ai/client] Attempt ${attempt}/${maxRetries} — model: ${model}, ${inputTokens} input tokens`,
       );
 
       const response = await fetch(
@@ -71,26 +74,30 @@ export async function generateWithAI(
 
       if (!response.ok) {
         const errorText = await response.text();
-        // Rate limit hit from API side
+        console.error(
+          `[ai/client] HTTP ${response.status} — ${errorText}`,
+        );
         if (response.status === 429) {
           const retryAfter = parseInt(
             response.headers.get("retry-after") || "60",
           );
           console.log(
-            `[ai/client] Rate limited by API (429). Retrying after ${retryAfter}s...`,
+            `[ai/client] Rate limited (429). Retrying after ${retryAfter}s...`,
           );
           await sleep(retryAfter * 1000);
           continue;
         }
-        throw new Error(`Cerebras API error: ${response.status} ${errorText}`);
+        throw new Error(`Cerebras API error ${response.status}: ${errorText}`);
       }
 
       const data = await response.json();
       const content = data.choices?.[0]?.message?.content || "";
       const usage = data.usage;
+
       console.log(
-        `[ai/client] ✅ Success on attempt ${attempt}. Input: ${usage?.prompt_tokens || inputTokens}tok, Output: ${usage?.completion_tokens || estimateTokens(content)}tok, Total: ${usage?.total_tokens || "?"}tok`,
+        `[ai/client] ✅ Success — model: ${model}, input: ${usage?.prompt_tokens ?? inputTokens}tok, output: ${usage?.completion_tokens ?? estimateTokens(content)}tok`,
       );
+
       return content;
     } catch (err: any) {
       clearTimeout(timeoutId);
@@ -98,7 +105,7 @@ export async function generateWithAI(
 
       if (err.name === "AbortError") {
         console.error(
-          `[ai/client] ⏱️ Attempt ${attempt} ABORTED after ${timeoutMs}ms (timeout)`,
+          `[ai/client] ⏱️ Attempt ${attempt} ABORTED after ${timeoutMs}ms`,
         );
       } else {
         console.error(
@@ -109,7 +116,7 @@ export async function generateWithAI(
 
       if (attempt < maxRetries) {
         const backoff = Math.min(1000 * Math.pow(2, attempt), 30000);
-        console.log(`[ai/client] Backing off ${backoff}ms before retry...`);
+        console.log(`[ai/client] Backing off ${backoff}ms...`);
         await sleep(backoff);
       }
     }

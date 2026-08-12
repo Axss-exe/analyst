@@ -1,8 +1,8 @@
 /**
- * ATIS v4 — Story Clustering
- * 
+ * ATIS v4 — Story Clustering (FIXED)
+ *
  * Discovers stories using a seed-and-expand approach:
- * 
+ *
  *   1. DETECT SEEDS — Find tight clusters connected by strong
  *      relationships (same_program, causal_chain, etc.)
  *   2. EXPAND SEEDS — Attach contextual evidence via medium-weight
@@ -10,9 +10,9 @@
  *   3. DETECT SINGLE-DOCUMENT STORIES — Evidence items with
  *      complete problem→intervention→outcome structure
  *   4. VALIDATE CLUSTERS — Ensure coherence and reject spurious groups
- * 
+ *
  * This replaces v3's blind connected-components clustering.
- * 
+ *
  * Pure, deterministic, testable. No LLM calls. No DB access.
  */
 
@@ -44,11 +44,11 @@ import {
 
 /**
  * Detect story seeds from the Story Graph.
- * 
+ *
  * A seed is a connected subgraph where edges are predominantly
  * strong (Tier 1) relationships. Seeds are the nuclei around
  * which stories form.
- * 
+ *
  * Seed types:
  *   - same_program: Multiple evidence items reference the same program
  *   - causal_chain: Problem → intervention → outcome chain across docs
@@ -330,7 +330,7 @@ function detectDenseClusterSeeds(
 /**
  * Expand story seeds by attaching nearby evidence through
  * medium-weight relationships.
- * 
+ *
  * Expansion rules:
  *   - Only use edges that pass the story threshold
  *   - Medium-weight edges (Tier 2) can attach context evidence
@@ -375,9 +375,10 @@ function expandSingleSeed(
     for (const currentId of frontier) {
       // Find all edges from currentId that pass the threshold
       const connected = edges.filter((e) => {
+        // FIX: Correct ternary to handle both source and target directions
         const otherId = e.sourceEvidenceId === currentId
           ? e.targetEvidenceId
-          : e.sourceEvidenceId === currentId
+          : e.targetEvidenceId === currentId
             ? e.sourceEvidenceId
             : null;
 
@@ -411,11 +412,14 @@ function expandSingleSeed(
       });
 
       for (const edge of connected) {
+        // FIX: Use the same corrected ternary here
         const otherId = edge.sourceEvidenceId === currentId
           ? edge.targetEvidenceId
-          : edge.sourceEvidenceId;
+          : edge.targetEvidenceId === currentId
+            ? edge.sourceEvidenceId
+            : null;
 
-        if (visited.has(otherId)) continue;
+        if (otherId === null || visited.has(otherId)) continue;
 
         visited.add(otherId);
         memberSet.add(otherId);
@@ -462,10 +466,10 @@ function expandSingleSeed(
 
 /**
  * Detect stories that consist of a single evidence item.
- * 
+ *
  * A single document can be a valid story if it contains a complete
  * problem → intervention → outcome structure (requirement §11).
- * 
+ *
  * This is NOT the same as unclustered evidence. Single-document
  * stories are promoted to full story candidates with their own
  * coherence scores.
@@ -501,6 +505,11 @@ export function detectSingleDocumentStories(
       reasons.push(`Identifies problem: ${dominantProblem.name}`);
     }
 
+    // FIX: Use the raw score for coherence (not scaled down) so it survives
+    // downstream filtering. Confidence is still slightly lower than multi-doc.
+    const coherenceScore = score;
+    const confidence = Math.max(0.5, score * 0.9);
+
     const candidate: StoryCandidate = {
       name: dominantProgram
         ? `${dominantProgram.name} Story`
@@ -511,8 +520,8 @@ export function detectSingleDocumentStories(
       evidenceIds: [evidenceId],
       seedEvidenceIds: [evidenceId],
       contextEvidenceIds: [],
-      coherenceScore: score,
-      confidence: score * 0.9, // Slightly lower confidence for single-doc
+      coherenceScore,
+      confidence,
       dominantProgram: dominantProgram,
       dominantProblem: dominantProblem,
       dominantTheme: inferTheme(intel),
@@ -547,7 +556,7 @@ export function detectSingleDocumentStories(
 
 /**
  * Merge overlapping story candidates.
- * 
+ *
  * If two candidates share ≥ 50% of their evidence, they are merged
  * into a single candidate with the union of evidence.
  */
@@ -610,7 +619,89 @@ export function mergeOverlappingCandidates(
 }
 
 // ═════════════════════════════════════════════════════════════════
-// 5. HELPER FUNCTIONS
+// 5. CANDIDATE SCORING (NEW)
+// ═════════════════════════════════════════════════════════════════
+
+/**
+ * Compute coherenceScore and confidence from real graph data.
+ *
+ * coherenceScore = weighted combination of:
+ *   - edge density inside the candidate
+ *   - seed strength
+ *   - ratio of strong vs weak relationships
+ *   - evidence count (more evidence = higher, up to a point)
+ *
+ * confidence = coherenceScore adjusted for:
+ *   - proportion of seed evidence (more seed = more confident)
+ *   - presence of a dominant program or problem
+ */
+function computeCandidateScores(
+  evidenceIds: number[],
+  seedEvidenceIds: number[],
+  edges: AggregatedEdge[]
+): { coherenceScore: number; confidence: number } {
+  const idSet = new Set(evidenceIds);
+  const seedSet = new Set(seedEvidenceIds);
+
+  // Internal edges
+  const internalEdges = edges.filter(
+    (e) => idSet.has(e.sourceEvidenceId) && idSet.has(e.targetEvidenceId)
+  );
+
+  // Edge density
+  const n = evidenceIds.length;
+  const possibleEdges = (n * (n - 1)) / 2;
+  const density = possibleEdges > 0 ? internalEdges.length / possibleEdges : 1;
+
+  // Relationship quality
+  let strongCount = 0;
+  let mediumCount = 0;
+  let weakCount = 0;
+  let totalWeight = 0;
+
+  for (const edge of internalEdges) {
+    totalWeight += edge.finalWeight;
+    for (const rel of edge.contributingRelationships) {
+      const tier = getRelationshipTier(rel.type);
+      if (tier === "strong") strongCount++;
+      else if (tier === "medium") mediumCount++;
+      else weakCount++;
+    }
+  }
+
+  const totalRels = strongCount + mediumCount + weakCount || 1;
+  const strongRatio = strongCount / totalRels;
+  const avgWeight = internalEdges.length > 0 ? totalWeight / internalEdges.length : 0;
+
+  // Seed ratio
+  const seedRatio = seedSet.size / n;
+
+  // Coherence = blend of density, strong ratio, avg weight, and size bonus
+  const sizeBonus = Math.min(1, (n - 1) / 4); // 1 doc = 0, 5+ docs = 1
+  const coherenceScore = parseFloat(
+    (
+      density * 0.25 +
+      strongRatio * 0.25 +
+      avgWeight * 0.25 +
+      sizeBonus * 0.15 +
+      seedRatio * 0.10
+    ).toFixed(3)
+  );
+
+  // Confidence = coherence adjusted for seed dominance and program anchor
+  const confidence = parseFloat(
+    (
+      coherenceScore * 0.7 +
+      seedRatio * 0.2 +
+      (n >= 2 ? 0.1 : 0)
+    ).toFixed(3)
+  );
+
+  return { coherenceScore, confidence };
+}
+
+// ═════════════════════════════════════════════════════════════════
+// 6. HELPER FUNCTIONS
 // ═════════════════════════════════════════════════════════════════
 
 function computeSeedStrength(evidenceIds: number[], edges: AggregatedEdge[]): number {
@@ -760,6 +851,12 @@ function inferTheme(intel: EvidenceIntelligence): string {
   return "General";
 }
 
+/**
+ * Build a StoryCandidate from a seed and its expanded evidence.
+ *
+ * FIX: Now computes coherenceScore and confidence from real graph data
+ * instead of leaving them at 0.
+ */
 function buildStoryCandidate(
   seed: StorySeed,
   evidenceIds: number[],
@@ -798,16 +895,23 @@ function buildStoryCandidate(
     reasons.push(`Problem-driven cluster`);
   }
 
+  // FIX: Compute real scores instead of leaving them at 0
+  const { coherenceScore, confidence } = computeCandidateScores(
+    evidenceIds,
+    seedEvidenceIds,
+    edges
+  );
+
   return {
     name: `Story Candidate ${seed.seedType}`,
     description: `Discovered via ${seed.seedType} seed with strength ${seed.strength.toFixed(2)}`,
     evidenceIds,
     seedEvidenceIds,
     contextEvidenceIds,
-    coherenceScore: 0, // Computed in TURN 8
-    confidence: 0,      // Computed in TURN 8
-    dominantTheme: "",  // Computed in TURN 8
-    causalChain: [],    // Computed in TURN 8
+    coherenceScore,
+    confidence,
+    dominantTheme: "",  // Computed downstream
+    causalChain: [],    // Computed downstream
     reasons,
     status: "candidate",
     relationshipCounts: {
@@ -833,7 +937,7 @@ function buildStoryCandidate(
 }
 
 // ═════════════════════════════════════════════════════════════════
-// 6. FULL PIPELINE (convenience)
+// 7. FULL PIPELINE (convenience)
 // ═════════════════════════════════════════════════════════════════
 
 export interface ClusteringResult {
@@ -851,7 +955,7 @@ export interface ClusteringResult {
 
 /**
  * Run the full story clustering pipeline.
- * 
+ *
  * @param storyGraph — The filtered Story Graph
  * @param edges — All aggregated edges
  * @param intelligenceMap — Per-evidence intelligence nodes
@@ -898,7 +1002,7 @@ export function runStoryClustering(
 
   return {
     candidates: allCandidates,
-    singleDocumentStories,
+    singleDocumentStories: singleDocStories,
     unclusteredEvidence: unclustered,
     stats: {
       seedsDetected: seeds.length,

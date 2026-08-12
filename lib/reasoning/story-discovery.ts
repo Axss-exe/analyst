@@ -247,7 +247,8 @@ async function persistStoryCandidates(
   try {
     // Note: In production, use a transaction and targeted cleanup
     for (const candidate of [...candidates, ...rejected]) {
-      const result = await db.insert(storyCandidates).values({
+      // FIX: Use .run() + lastInsertRowid instead of .returning() for SQLite
+      const result = db.insert(storyCandidates).values({
         name: candidate.name,
         description: candidate.description,
         coherenceScore: candidate.coherenceScore,
@@ -260,10 +261,10 @@ async function persistStoryCandidates(
         status: candidate.status,
         relationshipCounts: JSON.stringify(candidate.relationshipCounts),
         diagnostics: JSON.stringify(candidate.diagnostics),
-      }).returning({ id: storyCandidates.id });
+      }).run();
 
-      const candidateId = result[0]?.id;
-      if (!candidateId) continue;
+      const candidateId = Number(result.lastInsertRowid);
+      if (!candidateId || candidateId === 0) continue;
 
       // Seed evidence
       for (const eid of candidate.seedEvidenceIds) {

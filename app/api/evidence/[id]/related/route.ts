@@ -1,78 +1,87 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db/client";
-import { evidence, evidenceConnections } from "@/db/schema";
-import { eq, or, desc } from "drizzle-orm";
-import { requireAuth } from "@/lib/auth";
+import { evidence, storyRelationships } from "@/db/schema";
+import { eq, or } from "drizzle-orm";
 
 export async function GET(
-  request: Request,
-  { params }: { params: { id: string } },
+  request: NextRequest,
+  { params }: { params: { id: string } }
 ) {
   try {
-    const user = await requireAuth();
-    const id = parseInt(params.id);
+    const id = parseInt(params.id, 10);
+    if (isNaN(id)) {
+      return NextResponse.json(
+        { error: "Invalid evidence ID" },
+        { status: 400 }
+      );
+    }
 
-    // FIX: Query evidenceConnections to find actually connected evidence
-    const connections = db
+    // Find all relationships where this evidence is source or target
+    const relationships = await db
       .select()
-      .from(evidenceConnections)
+      .from(storyRelationships)
       .where(
         or(
-          eq(evidenceConnections.evidenceIdA, id),
-          eq(evidenceConnections.evidenceIdB, id),
-        ),
+          eq(storyRelationships.sourceEvidenceId, id),
+          eq(storyRelationships.targetEvidenceId, id)
+        )
       )
-      .orderBy(desc(evidenceConnections.strength))
       .all();
 
-    if (connections.length === 0) {
+    if (relationships.length === 0) {
       return NextResponse.json({ related: [] });
     }
 
     // Collect related evidence IDs
-    const relatedIds = connections
-      .map((c) => (c.evidenceIdA === id ? c.evidenceIdB : c.evidenceIdA))
-      .filter((v, i, a) => a.indexOf(v) === i);
-
-    if (relatedIds.length === 0) {
-      return NextResponse.json({ related: [] });
+    const relatedIds = new Set<number>();
+    for (const rel of relationships) {
+      if (rel.sourceEvidenceId !== id) relatedIds.add(rel.sourceEvidenceId);
+      if (rel.targetEvidenceId !== id) relatedIds.add(rel.targetEvidenceId);
     }
 
-    // Fetch related evidence records
-    const relatedEvidence = db
-      .select()
+    // Fetch related evidence details
+    // Drizzle SQLite doesn't have inArray for dynamic arrays easily,
+    // so we fetch all and filter
+    const allEvidence = await db
+      .select({
+        id: evidence.id,
+        title: evidence.title,
+        source: evidence.source,
+        sourceType: evidence.sourceType,
+        date: evidence.date,
+      })
       .from(evidence)
-      .where(or(...relatedIds.map((rid) => eq(evidence.id, rid))))
       .all();
 
-    // Map connection metadata onto each related item
-    const result = relatedEvidence.map((rel) => {
-      const conn = connections.find(
-        (c) =>
-          (c.evidenceIdA === id && c.evidenceIdB === rel.id) ||
-          (c.evidenceIdB === id && c.evidenceIdA === rel.id),
+    const evidenceMap = new Map(allEvidence.map((e) => [e.id, e]));
+
+    const related = Array.from(relatedIds).map((rid) => {
+      const rel = relationships.find(
+        (r) => r.sourceEvidenceId === rid || r.targetEvidenceId === rid
       );
+      const ev = evidenceMap.get(rid);
       return {
-        ...rel,
-        connection: conn
-          ? {
-              signalType: conn.signalType,
-              strength: conn.strength,
-              reason: conn.reason,
-            }
-          : null,
+        id: rid,
+        title: ev?.title || `Evidence ${rid}`,
+        source: ev?.source || null,
+        sourceType: ev?.sourceType || null,
+        date: ev?.date || null,
+        relationshipType: rel?.relationshipType || "related",
+        weight: rel?.weight ?? 0,
+        confidence: rel?.confidence ?? 0,
+        reason: rel?.reason || null,
       };
     });
 
-    return NextResponse.json({ related: result });
-  } catch (error: any) {
-    if (error.message === "Unauthorized") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    console.error("Get related evidence error:", error);
+    // Sort by weight descending
+    related.sort((a, b) => b.weight - a.weight);
+
+    return NextResponse.json({ related });
+  } catch (error) {
+    console.error(`[api/evidence/${params.id}/related] GET failed:`, error);
     return NextResponse.json(
       { error: "Failed to fetch related evidence" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

@@ -34,12 +34,46 @@ export default function DiscoverPage() {
   const [unlinkedCount, setUnlinkedCount] = useState(0);
   const [clusteredCount, setClusteredCount] = useState(0);
   const [totalNarratives, setTotalNarratives] = useState(0);
+  const [totalCandidates, setTotalCandidates] = useState(0);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState<number | null>(null);
   const [created, setCreated] = useState<number[]>([]);
 
+  /**
+   * FIX: Use PUT /api/discover to trigger the discovery pipeline,
+   * then refresh the UI with the returned cluster data.
+   *
+   * The API returns the full discovery state after running the pipeline,
+   * so we update all counters and cluster cards in one call.
+   */
   const runDiscovery = async () => {
     setLoading(true);
+    try {
+      const res = await fetch("/api/discover", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setClusters(data.clusters || []);
+        setUnlinkedCount(data.unlinkedCount || 0);
+        setClusteredCount(data.clusteredCount || 0);
+        setTotalNarratives(data.totalNarratives || 0);
+        setTotalCandidates(data.totalCandidates || 0);
+      } else {
+        alert(data.error || "Discovery failed");
+      }
+    } catch {
+      alert("Discovery failed");
+    }
+    setLoading(false);
+  };
+
+  /**
+   * Load existing state without triggering the pipeline.
+   * Useful for initial page load.
+   */
+  const loadExistingState = async () => {
     try {
       const res = await fetch("/api/discover");
       const data = await res.json();
@@ -48,11 +82,11 @@ export default function DiscoverPage() {
         setUnlinkedCount(data.unlinkedCount || 0);
         setClusteredCount(data.clusteredCount || 0);
         setTotalNarratives(data.totalNarratives || 0);
+        setTotalCandidates(data.totalCandidates || 0);
       }
     } catch {
-      alert("Discovery failed");
+      // Silently fail on initial load
     }
-    setLoading(false);
   };
 
   const createStory = async (cluster: ClusterView, index: number) => {
@@ -99,17 +133,27 @@ export default function DiscoverPage() {
               narratives
             </p>
           </div>
-          <Button onClick={runDiscovery} disabled={loading}>
-            {loading ? (
-              <>
-                <Loader2 className="mr-1 h-4 w-4 animate-spin" /> Analyzing...
-              </>
-            ) : (
-              <>
-                <Sparkles className="mr-1 h-4 w-4" /> Run Discovery
-              </>
-            )}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadExistingState}
+              disabled={loading}
+            >
+              Refresh
+            </Button>
+            <Button onClick={runDiscovery} disabled={loading}>
+              {loading ? (
+                <>
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" /> Analyzing...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="mr-1 h-4 w-4" /> Run Discovery
+                </>
+              )}
+            </Button>
+          </div>
         </div>
 
         {clusters.length === 0 && !loading && (
@@ -142,6 +186,7 @@ export default function DiscoverPage() {
               <Badge variant="outline">{clusteredCount} clustered</Badge>
               <Badge variant="outline">{clusters.length} clusters</Badge>
               <Badge variant="outline">{totalNarratives} narratives</Badge>
+              <Badge variant="outline">{totalCandidates} candidates</Badge>
             </div>
 
             <div className="grid gap-4">

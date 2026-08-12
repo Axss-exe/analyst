@@ -7,8 +7,13 @@
  * 3. Added evidenceEntities.mentions and .context columns
  * 4. Made rebuildStoryGraph optional — pipeline continues even if graph fails
  * 5. Added extensive console logging at every stage
+ * 6. FIXED: buildSimpleStoryGraph now creates storyCandidates + storyCandidateEvidence
+ * 7. FIXED: buildSimpleStoryGraph selects programId (not evidenceId) for shared-program edges
+ * 8. FIXED: generateNarrativesForValidatedStories includes candidate/keep/story statuses
+ * 9. FIXED: loadIntelligenceMap loads all node types (events, problems, outcomes, actors)
+ * 10. ADDED: runDiscoveryPipeline() for on-demand discovery from API routes
  */
-
+import { generateEvidenceSummary, serializeSummary } from "@/lib/ai/summaries";
 import { db } from "@/db";
 import {
   evidence,
@@ -32,7 +37,7 @@ import {
   graphClusters,
   narratives,
 } from "@/db/schema";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 
 // ═════════════════════════════════════════════════════════════════
 // NEW: Direct entry point for import route
@@ -49,7 +54,7 @@ export interface WorkerJob {
 
 /**
  * Call this from your import route after saving evidence.
- * 
+ *
  * Usage in import route:
  *   import { enqueueEvidenceJob } from "@/lib/worker";
  *   enqueueEvidenceJob(savedEvidenceId, content, userId);
@@ -138,6 +143,27 @@ export async function processEvidenceJob(
       };
     }
 
+    // Stage: generate_summary (between extraction and store_facts)
+    let summaryJson: string | null = null;
+    try {
+      updateProgress(evidenceId, "generate_summary", 16);
+      const summary = await generateEvidenceSummary(
+        evidence.text,
+        evidence.title,
+        evidenceId
+      );
+      if (summary) {
+        summaryJson = serializeSummary(summary);
+        db.update(evidence)
+          .set({ summary: summaryJson })
+          .where(eq(evidence.id, evidenceId))
+          .run();
+        console.log(`[worker] E${evidenceId}: summary stored (${summary.keyFindings.length} findings)`);
+      }
+    } catch (sumErr) {
+      console.warn(`[worker] E${evidenceId}: summary generation failed (non-fatal)`, sumErr);
+    }
+
     // ── Stage 3: Store v3 facts ────────────────────────────────
     updateStage(job, "store_facts", 25);
     if (extractionResult?.structured?.facts?.length > 0) {
@@ -173,7 +199,7 @@ export async function processEvidenceJob(
       const allEvidence = db.select({ id: evidence.id }).from(evidence).all();
       const allEvidenceIds = allEvidence.map((e) => e.id);
 
-      if (allEvidenceIds.length >= 2) {
+      if (allEvidenceIds.length >= 1) {
         await rebuildStoryGraph(allEvidenceIds);
       } else {
         console.log(`[worker] Only ${allEvidenceIds.length} evidence items, skipping graph rebuild`);
@@ -577,7 +603,7 @@ async function rebuildStoryGraph(allEvidenceIds: number[]): Promise<void> {
       console.log(`[worker] v4 pipeline unavailable, falling back to simple graph build:`, v4Err);
     }
 
-    // Fallback: simple relationship building
+    // Fallback: simple relationship building + candidate creation
     await buildSimpleStoryGraph(allEvidenceIds);
 
   } catch (err) {
@@ -588,74 +614,81 @@ async function rebuildStoryGraph(allEvidenceIds: number[]): Promise<void> {
 
 /**
  * Fallback graph builder that doesn't depend on v4 reasoning modules.
- * Creates simple relationships based on shared programs and problems.
+ * Creates simple relationships based on shared programs and problems,
+ * then discovers connected components and persists them as story candidates.
+ *
+ * CRITICAL FIXES vs original:
+ *  - Pre-loads program/problem mappings (avoids O(n²) queries)
+ *  - Selects programId (not evidenceId) for shared-program detection
+ *  - Builds adjacency list and finds connected components
+ *  - Creates storyCandidates + storyCandidateEvidence for every component
+ *  - Creates single-document story candidates for unclustered evidence
  */
 async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
-  console.log(`[worker] Building simple story graph...`);
+  console.log(`[worker] Building simple story graph for ${allEvidenceIds.length} evidence items...`);
 
-  let edgeCount = 0;
+  // ── Pre-load all program and problem mappings ──────────────
+  const evidenceProgramsMap = new Map<number, number[]>();
+  const evidenceProblemsMap = new Map<number, number[]>();
 
   for (const eid of allEvidenceIds) {
-    // Find evidence with same programs
     const progRows = db
-      .select({ otherId: evidencePrograms.evidenceId })
+      .select({ programId: evidencePrograms.programId })
       .from(evidencePrograms)
       .where(eq(evidencePrograms.evidenceId, eid))
       .all();
+    evidenceProgramsMap.set(eid, (progRows as any[]).map((r) => r.programId));
 
-    const programIds = (progRows as any[]).map((r) => r.otherId);
+    const probRows = db
+      .select({ problemId: evidenceProblems.problemId })
+      .from(evidenceProblems)
+      .where(eq(evidenceProblems.evidenceId, eid))
+      .all();
+    evidenceProblemsMap.set(eid, (probRows as any[]).map((r) => r.problemId));
+  }
 
-    for (const otherId of allEvidenceIds) {
-      if (otherId <= eid) continue; // Avoid duplicates
+  // ── Build edges and adjacency ──────────────────────────────
+  const adjacency = new Map<number, Set<number>>();
+  for (const eid of allEvidenceIds) adjacency.set(eid, new Set());
+
+  let edgeCount = 0;
+
+  for (let i = 0; i < allEvidenceIds.length; i++) {
+    const eid = allEvidenceIds[i];
+    const programIds = evidenceProgramsMap.get(eid) || [];
+    const problemIds = evidenceProblemsMap.get(eid) || [];
+
+    for (let j = i + 1; j < allEvidenceIds.length; j++) {
+      const otherId = allEvidenceIds[j];
+      const otherProgramIds = evidenceProgramsMap.get(otherId) || [];
+      const otherProblemIds = evidenceProblemsMap.get(otherId) || [];
 
       let weight = 0;
       let reason = "";
 
-      // Check shared programs
-      const otherProgs = db
-        .select({ programId: evidencePrograms.programId })
-        .from(evidencePrograms)
-        .where(eq(evidencePrograms.evidenceId, otherId))
-        .all();
-
-      const sharedPrograms = (otherProgs as any[]).filter((op) =>
-        programIds.includes(op.programId)
-      );
-
+      // Shared programs
+      const sharedPrograms = programIds.filter((pid) => otherProgramIds.includes(pid));
       if (sharedPrograms.length > 0) {
         weight += 0.5;
         reason = `Shares ${sharedPrograms.length} program(s)`;
       }
 
-      // Check shared problems
-      const probRows = db
-        .select({ problemId: evidenceProblems.problemId })
-        .from(evidenceProblems)
-        .where(eq(evidenceProblems.evidenceId, eid))
-        .all();
-      const problemIds = (probRows as any[]).map((r) => r.problemId);
-
-      const otherProbs = db
-        .select({ problemId: evidenceProblems.problemId })
-        .from(evidenceProblems)
-        .where(eq(evidenceProblems.evidenceId, otherId))
-        .all();
-
-      const sharedProblems = (otherProbs as any[]).filter((op) =>
-        problemIds.includes(op.problemId)
-      );
-
+      // Shared problems
+      const sharedProblems = problemIds.filter((pid) => otherProblemIds.includes(pid));
       if (sharedProblems.length > 0) {
         weight += 0.3;
         reason += reason ? `, ${sharedProblems.length} problem(s)` : `${sharedProblems.length} problem(s)`;
       }
 
       if (weight > 0) {
+        const sourceId = Math.min(eid, otherId);
+        const targetId = Math.max(eid, otherId);
+
         try {
           db.insert(storyRelationships)
             .values({
-              sourceEvidenceId: Math.min(eid, otherId),
-              targetEvidenceId: Math.max(eid, otherId),
+              sourceEvidenceId: sourceId,
+              targetEvidenceId: targetId,
               relationshipType: weight > 0.6 ? "strong_connection" : "related",
               weight,
               confidence: 0.6,
@@ -664,6 +697,9 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
             })
             .run();
           edgeCount++;
+
+          adjacency.get(eid)!.add(otherId);
+          adjacency.get(otherId)!.add(eid);
         } catch {
           // Unique constraint — already exists
         }
@@ -672,10 +708,115 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
   }
 
   console.log(`[worker] Simple graph built: ${edgeCount} edges`);
+
+  // ── Find connected components ──────────────────────────────
+  const visited = new Set<number>();
+  const components: number[][] = [];
+
+  for (const eid of allEvidenceIds) {
+    if (visited.has(eid)) continue;
+
+    const component: number[] = [];
+    const stack = [eid];
+
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      if (visited.has(current)) continue;
+      visited.add(current);
+      component.push(current);
+
+      for (const neighbor of adjacency.get(current) || []) {
+        if (!visited.has(neighbor)) {
+          stack.push(neighbor);
+        }
+      }
+    }
+
+    if (component.length >= 2) {
+      components.push(component.sort((a, b) => a - b));
+    }
+  }
+
+  console.log(`[worker] Found ${components.length} connected components`);
+
+  // ── Create story candidates for each component ───────────────
+  let candidateCount = 0;
+  for (const component of components) {
+    const name = `Story Cluster ${component.map((id) => `E${id}`).join("-")}`;
+
+    // Deduplicate by deterministic name
+    const existing = db.select().from(storyCandidates).where(eq(storyCandidates.name, name)).get();
+    if (existing) {
+      console.log(`[worker] Candidate "${name}" already exists, skipping`);
+      continue;
+    }
+
+    const result = db.insert(storyCandidates).values({
+      name,
+      description: `Auto-discovered cluster of ${component.length} evidence items sharing programs or problems.`,
+      coherenceScore: 0.5,
+      confidence: 0.5,
+      status: "candidate",
+      reasons: JSON.stringify(["Auto-discovered via shared programs/problems"]),
+      relationshipCounts: JSON.stringify({ strong: 0, medium: 0, weak: 0, total: 0 }),
+    }).run();
+
+    const candidateId = Number(result.lastInsertRowid);
+
+    for (const eid of component) {
+      db.insert(storyCandidateEvidence).values({
+        storyCandidateId: candidateId,
+        evidenceId: eid,
+        role: "member",
+        attachmentReason: "Shared context",
+      }).run();
+    }
+
+    candidateCount++;
+    console.log(`[worker] Created story candidate ${candidateId}: ${component.length} evidence items`);
+  }
+
+  // ── Create single-document story candidates ────────────────
+  const clusteredIds = new Set(components.flat());
+  const assessments = db.select()
+    .from(evidenceStoryAssessment)
+    .where(eq(evidenceStoryAssessment.canBeSingleDocumentStory, true))
+    .all();
+
+  for (const assessment of assessments as any[]) {
+    if (clusteredIds.has(assessment.evidenceId)) continue;
+
+    const name = `Single-Document Story E${assessment.evidenceId}`;
+    const existing = db.select().from(storyCandidates).where(eq(storyCandidates.name, name)).get();
+    if (existing) continue;
+
+    const result = db.insert(storyCandidates).values({
+      name,
+      description: `Self-contained narrative in evidence E${assessment.evidenceId}. ${assessment.assessmentReason}`,
+      coherenceScore: assessment.narrativeCompletenessScore || 0.5,
+      confidence: (assessment.narrativeCompletenessScore || 0.5) * 0.9,
+      status: "candidate",
+      reasons: JSON.stringify(["Single-document story"]),
+      relationshipCounts: JSON.stringify({ strong: 0, medium: 0, weak: 0, total: 0 }),
+    }).run();
+
+    const candidateId = Number(result.lastInsertRowid);
+    db.insert(storyCandidateEvidence).values({
+      storyCandidateId: candidateId,
+      evidenceId: assessment.evidenceId,
+      role: "seed",
+      attachmentReason: "Single-document story",
+    }).run();
+
+    candidateCount++;
+    console.log(`[worker] Created single-document candidate ${candidateId} for E${assessment.evidenceId}`);
+  }
+
+  console.log(`[worker] Created ${candidateCount} story candidates total`);
 }
 
 // ═════════════════════════════════════════════════════════════════
-// DATA LOADING HELPERS
+// DATA LOADING HELPERS (FIXED — now loads ALL intelligence types)
 // ═════════════════════════════════════════════════════════════════
 
 async function loadIntelligenceMap(evidenceIds: number[]): Promise<Map<number, any>> {
@@ -691,6 +832,42 @@ async function loadIntelligenceMap(evidenceIds: number[]): Promise<Map<number, a
         .where(eq(evidencePrograms.evidenceId, eid))
         .all();
 
+      const eventRows = db.select({
+        id: events.id, name: events.name, normalizedName: events.normalizedName,
+        description: events.description, temporalInfo: events.temporalInfo, eventType: events.eventType,
+      })
+        .from(evidenceEvents)
+        .innerJoin(events, eq(evidenceEvents.eventId, events.id))
+        .where(eq(evidenceEvents.evidenceId, eid))
+        .all();
+
+      const problemRows = db.select({
+        id: problems.id, name: problems.name, normalizedName: problems.normalizedName,
+        description: problems.description, severity: problems.severity,
+      })
+        .from(evidenceProblems)
+        .innerJoin(problems, eq(evidenceProblems.problemId, problems.id))
+        .where(eq(evidenceProblems.evidenceId, eid))
+        .all();
+
+      const outcomeRows = db.select({
+        id: outcomes.id, name: outcomes.name, normalizedName: outcomes.normalizedName,
+        description: outcomes.description, metric: outcomes.metric,
+      })
+        .from(evidenceOutcomes)
+        .innerJoin(outcomes, eq(evidenceOutcomes.outcomeId, outcomes.id))
+        .where(eq(evidenceOutcomes.evidenceId, eid))
+        .all();
+
+      const actorRows = db.select({
+        id: actors.id, name: actors.name, normalizedName: actors.normalizedName,
+        actorType: actors.actorType,
+      })
+        .from(evidenceActors)
+        .innerJoin(actors, eq(evidenceActors.actorId, actors.id))
+        .where(eq(evidenceActors.evidenceId, eid))
+        .all();
+
       const evRow = db.select({ content: evidence.content, title: evidence.title })
         .from(evidence)
         .where(eq(evidence.id, eid))
@@ -699,7 +876,10 @@ async function loadIntelligenceMap(evidenceIds: number[]): Promise<Map<number, a
       map.set(eid, {
         evidenceId: eid,
         programs: progRows,
-        events: [], problems: [], outcomes: [], actors: [],
+        events: eventRows,
+        problems: problemRows,
+        outcomes: outcomeRows,
+        actors: actorRows,
         text: evRow?.content || "",
       });
     } catch (e) {
@@ -780,7 +960,7 @@ async function buildEvidenceContexts(evidenceIds: number[], intelligenceMap: Map
         title: evRow?.title || "",
         textLength: evRow?.content?.length || 0,
         programIds: intel?.programs.map((p: any) => p.id) || [],
-        actorIds: [],
+        actorIds: intel?.actors.map((a: any) => a.id) || [],
         countries: [],
         organizations: [],
         sectors: [],
@@ -795,27 +975,34 @@ async function buildEvidenceContexts(evidenceIds: number[], intelligenceMap: Map
 }
 
 // ═════════════════════════════════════════════════════════════════
-// NARRATIVE GENERATION (OPTIONAL — non-fatal)
+// NARRATIVE GENERATION (FIXED — broader status + rich generation)
 // ═════════════════════════════════════════════════════════════════
 
 async function generateNarrativesForValidatedStories(): Promise<void> {
   try {
-    const validatedCandidates = db.select()
+    // FIX: Include candidate, keep, and story statuses — not just "validated"
+    const allCandidates = db.select()
       .from(storyCandidates)
-      .where(eq(storyCandidates.status, "validated"))
+      .where(inArray(storyCandidates.status, ["validated", "candidate", "keep", "story"]))
       .all();
 
-    if ((validatedCandidates as any[]).length === 0) {
-      console.log(`[worker] No validated candidates for narrative generation`);
+    if ((allCandidates as any[]).length === 0) {
+      console.log(`[worker] No candidates for narrative generation`);
       return;
     }
 
-    for (const candidate of validatedCandidates as any[]) {
+    console.log(`[worker] Generating narratives for ${(allCandidates as any[]).length} candidates`);
+
+    for (const candidate of allCandidates as any[]) {
       try {
+        // Skip if narrative already exists for this candidate
         const existing = db.select().from(narratives)
           .where(eq(narratives.title, candidate.name))
           .get();
-        if (existing) continue;
+        if (existing) {
+          console.log(`[worker] Narrative "${candidate.name}" already exists, skipping`);
+          continue;
+        }
 
         const evidenceRows = db.select({ evidenceId: storyCandidateEvidence.evidenceId })
           .from(storyCandidateEvidence)
@@ -824,17 +1011,51 @@ async function generateNarrativesForValidatedStories(): Promise<void> {
 
         const evidenceIds = (evidenceRows as any[]).map((r) => r.evidenceId);
 
+        let title = candidate.name;
+        let overview = candidate.description || "";
+        let confidence = candidate.confidence ?? 0.5;
+
+        // Try rich narrative generation via LLM if available
+        try {
+          const { proposeStoryFromEvidence } = await import("@/lib/ai/stories");
+          const evidenceItems = [];
+          for (const eid of evidenceIds) {
+            const ev = db.select({ title: evidence.title, content: evidence.content })
+              .from(evidence)
+              .where(eq(evidence.id, eid))
+              .get();
+            if (ev) {
+              evidenceItems.push({
+                id: eid,
+                title: ev.title || `Evidence ${eid}`,
+                summary: (ev.content || "").slice(0, 300),
+                topics: { topics: [] },
+                entities: [],
+              });
+            }
+          }
+          if (evidenceItems.length > 0) {
+            const proposal = await proposeStoryFromEvidence(evidenceItems);
+            title = proposal.title;
+            overview = proposal.overview;
+            confidence = proposal.confidence ?? confidence;
+            console.log(`[worker] Rich narrative generated for "${title}"`);
+          }
+        } catch (richErr) {
+          console.log(`[worker] Rich narrative generation unavailable, using fallback`);
+        }
+
         db.insert(narratives).values({
-          title: candidate.name,
-          overview: candidate.description || "",
+          title,
+          overview,
           clusterIds: JSON.stringify([candidate.id]),
           evidenceIds: JSON.stringify(evidenceIds),
-          confidence: candidate.confidence ?? 0.5,
+          confidence,
           generationType: "auto",
           createdBy: 1,
         }).run();
 
-        console.log(`[worker] Created narrative: "${candidate.name}"`);
+        console.log(`[worker] Created narrative: "${title}"`);
 
       } catch (e) {
         console.error(`[worker] Failed to generate narrative for candidate ${candidate.id}:`, e);
@@ -846,22 +1067,45 @@ async function generateNarrativesForValidatedStories(): Promise<void> {
 }
 
 // ═════════════════════════════════════════════════════════════════
-// FULL CORPUS REBUILD (manual trigger)
+// FULL CORPUS REBUILD & DISCOVERY PIPELINE
 // ═════════════════════════════════════════════════════════════════
+
+/**
+ * On-demand discovery pipeline. Call this from API routes when the user
+ * clicks "Run Discovery".
+ */
+export async function runDiscoveryPipeline(): Promise<{ success: boolean; message: string; candidatesCreated?: number }> {
+  console.log("[worker] Running discovery pipeline");
+  try {
+    const allEvidence = db.select({ id: evidence.id }).from(evidence).all();
+    const allEvidenceIds = (allEvidence as any[]).map((e) => e.id);
+
+    if (allEvidenceIds.length < 1) {
+      return { success: false, message: "No evidence to process" };
+    }
+
+    await rebuildStoryGraph(allEvidenceIds);
+    await generateNarrativesForValidatedStories();
+
+    const candidateCount = (db.select({ count: sql<number>`COUNT(*)` }).from(storyCandidates).get() as any)?.count || 0;
+
+    return {
+      success: true,
+      message: `Discovery complete for ${allEvidenceIds.length} evidence items`,
+      candidatesCreated: candidateCount,
+    };
+  } catch (err) {
+    console.error("[worker] Discovery pipeline failed:", err);
+    return { success: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}
 
 export async function triggerFullCorpusRebuild(): Promise<void> {
   console.log("[worker] Triggering full corpus rebuild");
-
-  const allEvidence = db.select({ id: evidence.id }).from(evidence).all();
-  const allEvidenceIds = (allEvidence as any[]).map((e) => e.id);
-
-  if (allEvidenceIds.length < 2) {
-    console.log("[worker] Not enough evidence for graph rebuild");
-    return;
+  const result = await runDiscoveryPipeline();
+  if (!result.success) {
+    console.log("[worker] Full corpus rebuild skipped:", result.message);
+  } else {
+    console.log("[worker] Full corpus rebuild complete:", result.message);
   }
-
-  await rebuildStoryGraph(allEvidenceIds);
-  await generateNarrativesForValidatedStories();
-
-  console.log("[worker] Full corpus rebuild complete");
 }

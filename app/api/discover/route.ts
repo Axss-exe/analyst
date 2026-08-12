@@ -1,151 +1,204 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db";
+import { db } from "@/db/client";
 import {
+  evidence,
   storyCandidates,
   storyCandidateEvidence,
   narratives,
   graphClusters,
-  evidence,
 } from "@/db/schema";
-import { eq, sql, desc } from "drizzle-orm";
+import { eq, inArray, desc, count } from "drizzle-orm";
+import { runDiscoveryPipeline } from "@/lib/worker";
+
+interface ClusterView {
+  id: number;
+  name: string;
+  description: string | null;
+  status: string;
+  confidence: number;
+  evidenceIds: number[];
+  narrative: { id: number; title: string; overview: string } | null;
+  createdAt: string;
+}
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const limit = Math.min(parseInt(searchParams.get("limit") || "100"), 500);
-    const search = searchParams.get("search") || "";
-
-    // Get story candidates with evidence counts
-    const candidates = await db
-      .select({
-        id: storyCandidates.id,
-        name: storyCandidates.name,
-        description: storyCandidates.description,
-        coherenceScore: storyCandidates.coherenceScore,
-        confidence: storyCandidates.confidence,
-        status: storyCandidates.status,
-        seedType: storyCandidates.seedType,
-        evidenceCount: sql<number>`COUNT(DISTINCT ${storyCandidateEvidence.evidenceId})`,
-        createdAt: storyCandidates.createdAt,
-      })
-      .from(storyCandidates)
-      .leftJoin(
-        storyCandidateEvidence,
-        eq(storyCandidates.id, storyCandidateEvidence.storyCandidateId)
-      )
-      .groupBy(storyCandidates.id)
-      .orderBy(desc(storyCandidates.coherenceScore))
-      .limit(limit)
-      .all();
-
-    // Get narratives
-    const narrativeList = await db
-      .select()
-      .from(narratives)
-      .orderBy(desc(narratives.confidence))
-      .limit(limit)
-      .all();
-
-    // Get clusters
-    const clusters = await db
-      .select()
-      .from(graphClusters)
-      .orderBy(desc(graphClusters.density))
-      .limit(limit)
-      .all();
-
-    // Get unassigned evidence count
-    const totalEvidence = (db.select({ count: sql<number>`COUNT(*)` }).from(evidence).get() as any)?.count || 0;
-
-    return NextResponse.json({
-      storyCandidates: candidates ?? [],
-      narratives: narrativeList ?? [],
-      clusters: clusters ?? [],
-      totalEvidence,
-      totalCandidates: candidates.length,
-      totalNarratives: narrativeList.length,
-      totalClusters: clusters.length,
-    });
-  } catch (err: any) {
-    console.error("[api/discover] GET failed:", err);
+    const state = await fetchLatestDiscoveryState();
+    return NextResponse.json(state);
+  } catch (error) {
+    console.error("[api/discover] GET failed:", error);
     return NextResponse.json(
-      {
-        storyCandidates: [],
-        narratives: [],
-        clusters: [],
-        totalEvidence: 0,
-        totalCandidates: 0,
-        totalNarratives: 0,
-        totalClusters: 0,
-        error: err.message || String(err),
-      },
+      { error: "Failed to fetch discovery state" },
       { status: 500 }
     );
   }
 }
 
-// ═════════════════════════════════════════════════════════════════
-// POST /api/discover
-// ═════════════════════════════════════════════════════════════════
-
-export async function POST(request: NextRequest): Promise<NextResponse> {
+export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { evidenceIds, title, description } = body;
+    const { title, description, evidenceIds = [] } = body;
 
-    if (!Array.isArray(evidenceIds) || evidenceIds.length === 0) {
+    const result = await db
+      .insert(storyCandidates)
+      .values({
+        name: title || `Manual Story ${Date.now()}`,
+        description: description || null,
+        status: "story",
+        confidence: 0.5,
+        coherenceScore: 0.5,
+      })
+      .run();
+
+    const candidateId = Number(result.lastInsertRowid);
+
+    if (evidenceIds.length > 0 && candidateId) {
+      for (const eid of evidenceIds) {
+        await db
+          .insert(storyCandidateEvidence)
+          .values({ candidateId, evidenceId: eid })
+          .run();
+      }
+    }
+
+    const state = await fetchLatestDiscoveryState();
+    return NextResponse.json({ ...state, createdId: candidateId });
+  } catch (error) {
+    console.error("[api/discover] POST failed:", error);
+    return NextResponse.json(
+      { error: "Failed to create manual story" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    console.log("[api/discover] Triggering discovery pipeline...");
+    const pipelineResult = await runDiscoveryPipeline();
+
+    if (!pipelineResult.success) {
       return NextResponse.json(
-        { error: "evidenceIds array is required" },
-        { status: 400 }
+        { error: pipelineResult.message || "Discovery pipeline failed" },
+        { status: 500 }
       );
     }
 
-    // v3: Create a manual story
-    const result = await db.insert(storyCandidates).values({
-      name: title || `Manual Story ${Date.now()}`,
-      description: description || "Manually created story",
-      coherenceScore: 0.5,
-      confidence: 0.5,
-      status: "story",
-      reasons: JSON.stringify(["Manually created by user"]),
-      relationshipCounts: JSON.stringify({ strong: 0, medium: 0, weak: 0, total: 0 }),
-    }).returning({ id: storyCandidates.id });
-
-    const candidateId = result[0].id;
-
-    // Link evidence
-    for (const eid of evidenceIds) {
-      await db.insert(storyCandidateEvidence).values({
-        storyCandidateId: candidateId,
-        evidenceId: eid,
-        role: "member",
-        attachmentReason: "Manually added",
-      }).onConflictDoNothing();
-    }
-
+    const state = await fetchLatestDiscoveryState();
     return NextResponse.json({
-      success: true,
-      storyId: candidateId,
-      evidenceCount: evidenceIds.length,
+      ...state,
+      message: pipelineResult.message,
+      candidatesCreated: pipelineResult.candidatesCreated,
     });
-  } catch (err) {
-    console.error("[api/discover] POST failed:", err);
+  } catch (error: any) {
+    console.error("[api/discover] PUT failed:", error);
     return NextResponse.json(
-      { error: "Failed to create story" },
+      { error: error.message || "Discovery failed" },
       { status: 500 }
     );
   }
 }
 
-// ═════════════════════════════════════════════════════════════════
-// UTILITIES
-// ═════════════════════════════════════════════════════════════════
+async function fetchLatestDiscoveryState() {
+  // Counts — .get() returns the row directly, not a Promise
+  const totalEvidenceResult = await db.select({ count: count() }).from(evidence).get();
+  const totalEvidence = totalEvidenceResult?.count ?? 0;
 
-function safeParseJson<T>(value: string | null | undefined, fallback: T): T {
-  if (!value) return fallback;
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
+  const totalCandidatesResult = await db.select({ count: count() }).from(storyCandidates).get();
+  const totalCandidates = totalCandidatesResult?.count ?? 0;
+
+  const totalNarrativesResult = await db.select({ count: count() }).from(narratives).get();
+  const totalNarratives = totalNarrativesResult?.count ?? 0;
+
+  const totalClustersResult = await db.select({ count: count() }).from(graphClusters).get();
+  const totalClusters = totalClustersResult?.count ?? 0;
+
+  // Build cluster views
+  const clusters = await buildClusterViews();
+
+  // Compute linked vs unlinked
+  const linkedEvidenceIds = new Set<number>();
+  for (const c of clusters) {
+    for (const eid of c.evidenceIds) {
+      linkedEvidenceIds.add(eid);
+    }
   }
+
+  const unlinkedCount = totalEvidence - linkedEvidenceIds.size;
+  const clusteredCount = linkedEvidenceIds.size;
+
+  return {
+    clusters,
+    totalEvidence,
+    totalCandidates,
+    totalNarratives,
+    totalClusters,
+    unlinkedCount,
+    clusteredCount,
+  };
+}
+
+async function buildClusterViews(): Promise<ClusterView[]> {
+  const candidates = await db
+    .select()
+    .from(storyCandidates)
+    .orderBy(desc(storyCandidates.id))
+    .all();
+
+  if (candidates.length === 0) return [];
+
+  // Fetch all narratives
+  const narrativeList = await db.select().from(narratives).all();
+  const narrativeMap = new Map<number, (typeof narrativeList)[0]>();
+  for (const n of narrativeList) {
+    try {
+      const clusterIds = n.clusterIds ? JSON.parse(n.clusterIds) : [];
+      if (Array.isArray(clusterIds) && clusterIds.length > 0) {
+        narrativeMap.set(clusterIds[0], n);
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }
+
+  // Fetch all candidate-evidence links
+  const allLinks = await db.select().from(storyCandidateEvidence).all();
+  const evidenceMap = new Map<number, number[]>();
+  for (const link of allLinks) {
+    const cid = link.candidateId;
+    const eid = link.evidenceId;
+    if (!evidenceMap.has(cid)) evidenceMap.set(cid, []);
+    evidenceMap.get(cid)!.push(eid);
+  }
+
+  const views: ClusterView[] = candidates.map((c: any) => {
+    const evidenceIds = evidenceMap.get(c.id) || [];
+    const narrative = narrativeMap.get(c.id) || null;
+
+    const safeDate = (val: any) => {
+      if (!val) return new Date().toISOString();
+      if (typeof val === "string") return val;
+      if (val instanceof Date) return val.toISOString();
+      return String(val);
+    };
+
+    return {
+      id: c.id,
+      name: c.name || "Unnamed Cluster",
+      description: c.description || null,
+      status: c.status || "candidate",
+      confidence: c.confidence ?? 0.5,
+      evidenceIds,
+      narrative: narrative
+        ? {
+            id: narrative.id,
+            title: narrative.title,
+            overview: narrative.overview || "",
+          }
+        : null,
+      createdAt: safeDate(c.createdAt),
+    };
+  });
+
+  return views;
 }
