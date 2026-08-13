@@ -1,23 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db/client";
-import {
-  evidence,
-  facts,
-  entities,
-  programs,
-  events,
-  problems,
-  outcomes,
-  actors,
-  evidencePrograms,
-  evidenceEvents,
-  evidenceProblems,
-  evidenceOutcomes,
-  evidenceActors,
-  storyRelationships,
-} from "@/db/schema";
+import { evidence, facts, entities, storyRelationships } from "@/db/schema";
 import { eq, or } from "drizzle-orm";
-import { parseSummary } from "@/lib/ai/summaries";
+import { parseSummary } from "@/lib/ai/summary";
 
 export async function GET(
   request: NextRequest,
@@ -26,84 +11,41 @@ export async function GET(
   try {
     const id = parseInt(params.id, 10);
     if (isNaN(id)) {
-      return NextResponse.json(
-        { error: "Invalid evidence ID" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid evidence ID" }, { status: 400 });
     }
 
-    // 1. Base evidence
-    const item = await db
-      .select()
-      .from(evidence)
-      .where(eq(evidence.id, id))
-      .get();
-
+    const item = await db.select().from(evidence).where(eq(evidence.id, id)).get();
     if (!item) {
-      return NextResponse.json(
-        { error: "Evidence not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Evidence not found" }, { status: 404 });
     }
 
-    // 2. Parse summary if present
     const summary = item.summary ? parseSummary(item.summary) : null;
 
-    // 3. Facts
-    const factList = await db
-      .select()
-      .from(facts)
-      .where(eq(facts.evidenceId, id))
-      .all();
+    const factList = await db.select().from(facts).where(eq(facts.evidenceId, id)).all();
+    const entityList = await db.select().from(entities).where(eq(entities.evidenceId, id)).all();
 
-    // 4. Entities
-    const entityList = await db
-      .select()
-      .from(entities)
-      .where(eq(entities.evidenceId, id))
-      .all();
+    // Load intelligence via raw SQL to avoid Drizzle column name mapping issues
+    const intelligence = await loadIntelligenceRaw(id);
 
-    // 5. Intelligence
-    const intelligence = await loadIntelligence(id);
-
-    // 6. Relationships
     const relationships = await db
       .select()
       .from(storyRelationships)
-      .where(
-        or(
-          eq(storyRelationships.sourceEvidenceId, id),
-          eq(storyRelationships.targetEvidenceId, id)
-        )
-      )
+      .where(or(eq(storyRelationships.sourceEvidenceId, id), eq(storyRelationships.targetEvidenceId, id)))
       .all();
 
-    // 7. Related evidence
+    // Related evidence
     const relatedIds = new Set<number>();
     for (const rel of relationships) {
       if (rel.sourceEvidenceId !== id) relatedIds.add(rel.sourceEvidenceId);
       if (rel.targetEvidenceId !== id) relatedIds.add(rel.targetEvidenceId);
     }
 
-    let relatedEvidence: Array<{
-      id: number;
-      title: string;
-      source: string | null;
-      relationshipType: string;
-      weight: number;
-    }> = [];
-
+    let relatedEvidence: any[] = [];
     if (relatedIds.size > 0) {
-      const allEvidence = await db
-        .select({ id: evidence.id, title: evidence.title, source: evidence.source })
-        .from(evidence)
-        .all();
+      const allEvidence = await db.select({ id: evidence.id, title: evidence.title, source: evidence.source }).from(evidence).all();
       const evidenceMap = new Map(allEvidence.map((e) => [e.id, e]));
-
       relatedEvidence = Array.from(relatedIds).slice(0, 20).map((rid) => {
-        const rel = relationships.find(
-          (r) => r.sourceEvidenceId === rid || r.targetEvidenceId === rid
-        );
+        const rel = relationships.find((r) => r.sourceEvidenceId === rid || r.targetEvidenceId === rid);
         const ev = evidenceMap.get(rid);
         return {
           id: rid,
@@ -126,86 +68,57 @@ export async function GET(
     });
   } catch (error) {
     console.error(`[api/evidence/${params.id}] GET failed:`, error);
-    return NextResponse.json(
-      { error: "Failed to fetch evidence detail" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch evidence detail" }, { status: 500 });
   }
 }
 
-async function loadIntelligence(evidenceId: number) {
+async function loadIntelligenceRaw(evidenceId: number) {
   const result = {
-    programs: [] as Array<{ id: number; name: string; type: string | null; description: string | null }>,
-    events: [] as Array<{ id: number; name: string; eventType: string | null; temporalInfo: string | null; description: string | null }>,
-    problems: [] as Array<{ id: number; name: string; severity: string | null; description: string | null }>,
-    outcomes: [] as Array<{ id: number; name: string; metric: string | null; description: string | null }>,
-    actors: [] as Array<{ id: number; name: string; actorType: string | null; description: string | null }>,
+    programs: [] as any[],
+    events: [] as any[],
+    problems: [] as any[],
+    outcomes: [] as any[],
+    actors: [] as any[],
   };
 
-  try {
-    const progLinks = await db
-      .select({ programId: evidencePrograms.programId })
-      .from(evidencePrograms)
-      .where(eq(evidencePrograms.evidenceId, evidenceId))
-      .all();
-    if (progLinks.length > 0) {
-      const progIds = progLinks.map((p) => p.programId);
-      const allProgs = await db.select().from(programs).all();
-      result.programs = allProgs.filter((p) => progIds.includes(p.id));
-    }
-  } catch (e) { console.warn("[intelligence] programs load failed:", e); }
+  const client = (db as any).$client || (db as any).session?.client;
+  if (!client) return result;
 
   try {
-    const eventLinks = await db
-      .select({ eventId: evidenceEvents.eventId })
-      .from(evidenceEvents)
-      .where(eq(evidenceEvents.evidenceId, evidenceId))
-      .all();
-    if (eventLinks.length > 0) {
-      const eventIds = eventLinks.map((e) => e.eventId);
-      const allEvents = await db.select().from(events).all();
-      result.events = allEvents.filter((e) => eventIds.includes(e.id));
-    }
-  } catch (e) { console.warn("[intelligence] events load failed:", e); }
+    // Programs via evidence_programs junction
+    const progRows = client
+      .prepare(`SELECT p.* FROM programs p JOIN evidence_programs ep ON p.id = ep.program_id WHERE ep.evidence_id = ?`)
+      .all(evidenceId) as any[];
+    result.programs = progRows;
+  } catch (e) { /* table may not exist */ }
 
   try {
-    const probLinks = await db
-      .select({ problemId: evidenceProblems.problemId })
-      .from(evidenceProblems)
-      .where(eq(evidenceProblems.evidenceId, evidenceId))
-      .all();
-    if (probLinks.length > 0) {
-      const probIds = probLinks.map((p) => p.problemId);
-      const allProblems = await db.select().from(problems).all();
-      result.problems = allProblems.filter((p) => probIds.includes(p.id));
-    }
-  } catch (e) { console.warn("[intelligence] problems load failed:", e); }
+    const eventRows = client
+      .prepare(`SELECT e.* FROM events e JOIN evidence_events ee ON e.id = ee.event_id WHERE ee.evidence_id = ?`)
+      .all(evidenceId) as any[];
+    result.events = eventRows;
+  } catch (e) { /* table may not exist */ }
 
   try {
-    const outLinks = await db
-      .select({ outcomeId: evidenceOutcomes.outcomeId })
-      .from(evidenceOutcomes)
-      .where(eq(evidenceOutcomes.evidenceId, evidenceId))
-      .all();
-    if (outLinks.length > 0) {
-      const outIds = outLinks.map((o) => o.outcomeId);
-      const allOutcomes = await db.select().from(outcomes).all();
-      result.outcomes = allOutcomes.filter((o) => outIds.includes(o.id));
-    }
-  } catch (e) { console.warn("[intelligence] outcomes load failed:", e); }
+    const probRows = client
+      .prepare(`SELECT p.* FROM problems p JOIN evidence_problems ep ON p.id = ep.problem_id WHERE ep.evidence_id = ?`)
+      .all(evidenceId) as any[];
+    result.problems = probRows;
+  } catch (e) { /* table may not exist */ }
 
   try {
-    const actorLinks = await db
-      .select({ actorId: evidenceActors.actorId })
-      .from(evidenceActors)
-      .where(eq(evidenceActors.evidenceId, evidenceId))
-      .all();
-    if (actorLinks.length > 0) {
-      const actorIds = actorLinks.map((a) => a.actorId);
-      const allActors = await db.select().from(actors).all();
-      result.actors = allActors.filter((a) => actorIds.includes(a.id));
-    }
-  } catch (e) { console.warn("[intelligence] actors load failed:", e); }
+    const outRows = client
+      .prepare(`SELECT o.* FROM outcomes o JOIN evidence_outcomes eo ON o.id = eo.outcome_id WHERE eo.evidence_id = ?`)
+      .all(evidenceId) as any[];
+    result.outcomes = outRows;
+  } catch (e) { /* table may not exist */ }
+
+  try {
+    const actorRows = client
+      .prepare(`SELECT a.* FROM actors a JOIN evidence_actors ea ON a.id = ea.actor_id WHERE ea.evidence_id = ?`)
+      .all(evidenceId) as any[];
+    result.actors = actorRows;
+  } catch (e) { /* table may not exist */ }
 
   return result;
 }

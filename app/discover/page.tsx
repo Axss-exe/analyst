@@ -1,304 +1,247 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { AppShell } from "@/components/app-shell";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import {
-  Loader2,
-  Sparkles,
-  GitBranch,
-  Users,
-  FileText,
-  CheckCircle,
-  Network,
-} from "lucide-react";
 
 interface ClusterView {
   id: number;
   name: string;
-  description: string;
-  density: number;
-  status: "new" | "strengthened" | "merged" | "stable";
-  evidenceCount: number;
-  entityCount: number;
+  description: string | null;
+  status: string;
+  confidence: number;
   evidenceIds: number[];
-  entityIds: number[];
-  narrative: { title: string; overview: string; confidence: number } | null;
+  narrative: { id: number; title: string; overview: string } | null;
+  createdAt: string;
+}
+
+interface DiscoveryState {
+  clusters: ClusterView[];
+  totalEvidence: number;
+  totalCandidates: number;
+  totalNarratives: number;
+  totalClusters: number;
+  unlinkedCount: number;
+  clusteredCount: number;
 }
 
 export default function DiscoverPage() {
   const [clusters, setClusters] = useState<ClusterView[]>([]);
+  const [totalEvidence, setTotalEvidence] = useState(0);
+  const [totalCandidates, setTotalCandidates] = useState(0);
+  const [totalNarratives, setTotalNarratives] = useState(0);
   const [unlinkedCount, setUnlinkedCount] = useState(0);
   const [clusteredCount, setClusteredCount] = useState(0);
-  const [totalNarratives, setTotalNarratives] = useState(0);
-  const [totalCandidates, setTotalCandidates] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [creating, setCreating] = useState<number | null>(null);
-  const [created, setCreated] = useState<number[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  /**
-   * FIX: Use PUT /api/discover to trigger the discovery pipeline,
-   * then refresh the UI with the returned cluster data.
-   *
-   * The API returns the full discovery state after running the pipeline,
-   * so we update all counters and cluster cards in one call.
-   */
-  const runDiscovery = async () => {
-    setLoading(true);
+  const loadExistingState = useCallback(async () => {
     try {
-      const res = await fetch("/api/discover", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setClusters(data.clusters || []);
-        setUnlinkedCount(data.unlinkedCount || 0);
-        setClusteredCount(data.clusteredCount || 0);
-        setTotalNarratives(data.totalNarratives || 0);
-        setTotalCandidates(data.totalCandidates || 0);
-      } else {
-        alert(data.error || "Discovery failed");
-      }
-    } catch {
-      alert("Discovery failed");
-    }
-    setLoading(false);
-  };
-
-  /**
-   * Load existing state without triggering the pipeline.
-   * Useful for initial page load.
-   */
-  const loadExistingState = async () => {
-    try {
+      setLoading(true);
+      setError(null);
       const res = await fetch("/api/discover");
-      const data = await res.json();
-      if (res.ok) {
-        setClusters(data.clusters || []);
-        setUnlinkedCount(data.unlinkedCount || 0);
-        setClusteredCount(data.clusteredCount || 0);
-        setTotalNarratives(data.totalNarratives || 0);
-        setTotalCandidates(data.totalCandidates || 0);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
       }
-    } catch {
-      // Silently fail on initial load
+      const data: DiscoveryState = await res.json();
+      setClusters(data.clusters || []);
+      setTotalEvidence(data.totalEvidence ?? 0);
+      setTotalCandidates(data.totalCandidates ?? 0);
+      setTotalNarratives(data.totalNarratives ?? 0);
+      setUnlinkedCount(data.unlinkedCount ?? 0);
+      setClusteredCount(data.clusteredCount ?? 0);
+    } catch (err: any) {
+      setError(err.message || "Failed to load discovery state");
+    } finally {
+      setLoading(false);
     }
-  };
+  }, []);
 
-  const createStory = async (cluster: ClusterView, index: number) => {
-    setCreating(index);
+  const runDiscovery = useCallback(async () => {
     try {
-      const res = await fetch("/api/discover", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: cluster.narrative?.title || cluster.name,
-          overview: cluster.narrative?.overview || cluster.description,
-          evidenceIds: cluster.evidenceIds,
-        }),
-      });
-      if (res.ok) {
-        setCreated((prev) => [...prev, index]);
-      } else {
-        alert("Failed to create story");
+      setLoading(true);
+      setError(null);
+      const res = await fetch("/api/discover", { method: "PUT" });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || `HTTP ${res.status}`);
       }
-    } catch {
-      alert("Network error");
+      setClusters(data.clusters || []);
+      setTotalEvidence(data.totalEvidence ?? 0);
+      setTotalCandidates(data.totalCandidates ?? 0);
+      setTotalNarratives(data.totalNarratives ?? 0);
+      setUnlinkedCount(data.unlinkedCount ?? 0);
+      setClusteredCount(data.clusteredCount ?? 0);
+    } catch (err: any) {
+      setError(err.message || "Discovery failed");
+    } finally {
+      setLoading(false);
     }
-    setCreating(null);
+  }, []);
+
+  useEffect(() => {
+    loadExistingState();
+  }, [loadExistingState]);
+
+  const safeNum = (n: any): number => {
+    if (typeof n === "number" && !isNaN(n)) return n;
+    return 0;
   };
 
-  const statusColors: Record<string, string> = {
-    new: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-    strengthened: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-    merged: "bg-amber-500/10 text-amber-400 border-amber-500/20",
-    stable: "bg-slate-500/10 text-slate-400 border-slate-500/20",
+  const safeFixed = (n: any, digits = 1): string => {
+    const val = safeNum(n);
+    return val.toFixed(digits);
+  };
+
+  const pct = (part: number, whole: number): string => {
+    if (whole <= 0) return "0.0";
+    return safeFixed((part / whole) * 100, 1);
   };
 
   return (
-    <AppShell>
-      <div className="mx-auto max-w-5xl space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-              <Network className="h-6 w-6 text-indigo-400" />
-              Story Discovery
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Graph-driven discovery: clusters, hidden paths, and emerging
-              narratives
-            </p>
+    <div className="p-6 max-w-6xl mx-auto">
+      <h1 className="text-2xl font-bold mb-6">Discovery</h1>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white border rounded-lg p-4">
+          <div className="text-sm text-gray-500">Total Evidence</div>
+          <div className="text-2xl font-semibold">{totalEvidence}</div>
+        </div>
+        <div className="bg-white border rounded-lg p-4">
+          <div className="text-sm text-gray-500">Candidates</div>
+          <div className="text-2xl font-semibold">{totalCandidates}</div>
+        </div>
+        <div className="bg-white border rounded-lg p-4">
+          <div className="text-sm text-gray-500">Narratives</div>
+          <div className="text-2xl font-semibold">{totalNarratives}</div>
+        </div>
+        <div className="bg-white border rounded-lg p-4">
+          <div className="text-sm text-gray-500">Linked / Unlinked</div>
+          <div className="text-2xl font-semibold">
+            {clusteredCount} / {unlinkedCount}
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadExistingState}
-              disabled={loading}
-            >
-              Refresh
-            </Button>
-            <Button onClick={runDiscovery} disabled={loading}>
-              {loading ? (
-                <>
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" /> Analyzing...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="mr-1 h-4 w-4" /> Run Discovery
-                </>
-              )}
-            </Button>
+          <div className="text-xs text-gray-400">
+            {pct(clusteredCount, totalEvidence)}% linked
           </div>
         </div>
+      </div>
 
-        {clusters.length === 0 && !loading && (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <GitBranch className="h-12 w-12 text-muted-foreground opacity-40 mx-auto" />
-              <p className="mt-3 text-muted-foreground">
-                No story clusters found yet
-              </p>
-              <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
-                Upload evidence with full text content. The graph reasoning
-                system will extract atomic facts, compute connection signals,
-                and discover emerging clusters.
-              </p>
-              <div className="flex justify-center gap-2 mt-4">
-                <Link href="/evidence/new">
-                  <Button size="sm">
-                    <FileText className="mr-1 h-4 w-4" /> Add Evidence
-                  </Button>
-                </Link>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+      {/* Actions */}
+      <div className="flex gap-3 mb-6">
+        <button
+          onClick={runDiscovery}
+          disabled={loading}
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+        >
+          {loading ? "Running..." : "Run Discovery"}
+        </button>
+        <button
+          onClick={loadExistingState}
+          disabled={loading}
+          className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 disabled:opacity-50"
+        >
+          Refresh
+        </button>
+      </div>
 
-        {clusters.length > 0 && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Badge variant="outline">{unlinkedCount} unlinked</Badge>
-              <Badge variant="outline">{clusteredCount} clustered</Badge>
-              <Badge variant="outline">{clusters.length} clusters</Badge>
-              <Badge variant="outline">{totalNarratives} narratives</Badge>
-              <Badge variant="outline">{totalCandidates} candidates</Badge>
-            </div>
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 text-red-700 rounded border border-red-200">
+          {error}
+        </div>
+      )}
 
-            <div className="grid gap-4">
-              {clusters.map((cluster, idx) => (
-                <Card
-                  key={cluster.id}
-                  className={created.includes(idx) ? "opacity-60" : ""}
-                >
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <CardTitle className="text-base">
-                            {cluster.name}
-                          </CardTitle>
-                          <Badge className={statusColors[cluster.status] || ""}>
-                            {cluster.status}
-                          </Badge>
-                          {cluster.narrative && (
-                            <Badge className="bg-indigo-500/10 text-indigo-400 border-indigo-500/20">
-                              <Sparkles className="h-2.5 w-2.5 mr-0.5" />{" "}
-                              Narrative
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          {cluster.description}
-                        </p>
+      {/* Clusters */}
+      <h2 className="text-lg font-semibold mb-3">
+        Clusters ({clusters.length})
+      </h2>
+
+      {clusters.length === 0 && !loading && (
+        <div className="text-gray-500 italic">
+          No clusters found. Click "Run Discovery" to analyze evidence.
+        </div>
+      )}
+
+      <div className="space-y-4">
+        {clusters.map((cluster) => {
+          const confidence = safeNum(cluster.confidence);
+          const evidenceCount = Array.isArray(cluster.evidenceIds)
+            ? cluster.evidenceIds.length
+            : 0;
+
+          return (
+            <div
+              key={cluster.id}
+              className="bg-white border rounded-lg p-4 hover:shadow-md transition"
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-lg">{cluster.name}</h3>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded ${
+                        cluster.status === "validated"
+                          ? "bg-green-100 text-green-700"
+                          : cluster.status === "story"
+                          ? "bg-blue-100 text-blue-700"
+                          : "bg-gray-100 text-gray-600"
+                      }`}
+                    >
+                      {cluster.status || "candidate"}
+                    </span>
+                  </div>
+
+                  {cluster.description && (
+                    <p className="text-gray-600 text-sm mt-1">
+                      {cluster.description}
+                    </p>
+                  )}
+
+                  <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
+                    <span>Confidence: {safeFixed(confidence, 2)}</span>
+                    <span>{evidenceCount} evidence items</span>
+                  </div>
+
+                  {cluster.narrative && (
+                    <div className="mt-3 p-3 bg-gray-50 rounded">
+                      <div className="text-sm font-medium text-gray-700">
+                        Narrative
                       </div>
-                      <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-                        <Badge variant="outline">
-                          {cluster.evidenceCount} evidence
-                        </Badge>
-                        <Badge variant="outline">
-                          <Users className="h-2.5 w-2.5 mr-0.5" />
-                          {cluster.entityCount} entities
-                        </Badge>
-                        <Badge variant="outline">
-                          density {cluster.density.toFixed(2)}
-                        </Badge>
-                        {created.includes(idx) ? (
-                          <Badge className="bg-emerald-500/20 text-emerald-400">
-                            <CheckCircle className="h-3 w-3 mr-1" /> Created
-                          </Badge>
-                        ) : (
-                          <Button
-                            size="sm"
-                            onClick={() => createStory(cluster, idx)}
-                            disabled={creating === idx}
-                          >
-                            {creating === idx ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              "Create Story"
-                            )}
-                          </Button>
-                        )}
+                      <div className="text-sm text-gray-600 mt-0.5">
+                        {cluster.narrative.title}
                       </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {cluster.narrative && (
-                      <div className="rounded-md bg-indigo-500/5 border border-indigo-500/10 p-3">
-                        <p className="text-xs font-semibold text-indigo-400 mb-1">
-                          Auto-Generated Narrative
-                        </p>
-                        <p className="text-sm font-medium">
-                          {cluster.narrative.title}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                      {cluster.narrative.overview && (
+                        <p className="text-sm text-gray-500 mt-1 line-clamp-3">
                           {cluster.narrative.overview}
                         </p>
-                        <Badge variant="outline" className="mt-2 text-[10px]">
-                          confidence{" "}
-                          {(cluster.narrative.confidence * 100).toFixed(0)}%
-                        </Badge>
-                      </div>
-                    )}
-
-                    <div className="rounded-md bg-muted/50 p-3">
-                      <p className="text-xs font-medium mb-1">
-                        Why this cluster exists:
-                      </p>
-                      <p className="text-xs text-muted-foreground leading-relaxed">
-                        {cluster.description}
-                      </p>
+                      )}
                     </div>
+                  )}
+                </div>
+              </div>
 
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-                      <span>Evidence:</span>
-                      <div className="flex flex-wrap gap-1">
-                        {Array.isArray(cluster.evidenceIds) && cluster.evidenceIds.slice(0, 8).map((id) => (
-                          <Link
-                            key={id}
-                            href={`/evidence/${id}`}
-                            className="hover:text-primary transition-colors underline underline-offset-2"
-                          >
-                            #{id}
-                          </Link>
-                        ))}
-                        {Array.isArray(cluster.evidenceIds) && cluster.evidenceIds.length > 8 && (
-                          <span>+{cluster.evidenceIds.length - 8} more</span>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+              {evidenceCount > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {cluster.evidenceIds.slice(0, 10).map((eid) => (
+                    <Link
+                      key={eid}
+                      href={`/evidence/${eid}`}
+                      className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100"
+                    >
+                      E{eid}
+                    </Link>
+                  ))}
+                  {evidenceCount > 10 && (
+                    <span className="text-xs text-gray-400">
+                      +{evidenceCount - 10} more
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          );
+        })}
       </div>
-    </AppShell>
+    </div>
   );
 }

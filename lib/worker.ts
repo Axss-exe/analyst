@@ -143,26 +143,26 @@ export async function processEvidenceJob(
       };
     }
 
-    // Stage: generate_summary (between extraction and store_facts)
-    let summaryJson: string | null = null;
+    // ── SUMMARY GENERATION ──────────────────────────────────────
     try {
-      updateProgress(evidenceId, "generate_summary", 16);
+      updateStage(job, "generate_summary", 16);
       const summary = await generateEvidenceSummary(
-        evidence.text,
-        evidence.title,
-        evidenceId
+        evidenceRow.text,
+        evidenceRow.title,
+        job.evidenceId
       );
       if (summary) {
-        summaryJson = serializeSummary(summary);
+        const summaryJson = serializeSummary(summary);
         db.update(evidence)
           .set({ summary: summaryJson })
-          .where(eq(evidence.id, evidenceId))
+          .where(eq(evidence.id, job.evidenceId))
           .run();
-        console.log(`[worker] E${evidenceId}: summary stored (${summary.keyFindings.length} findings)`);
+        console.log(`[worker] E${job.evidenceId}: summary stored (${summary.keyFindings.length} findings)`);
       }
     } catch (sumErr) {
-      console.warn(`[worker] E${evidenceId}: summary generation failed (non-fatal)`, sumErr);
+      console.warn(`[worker] E${job.evidenceId}: summary generation failed (non-fatal)`, sumErr);
     }
+    // ─────────────────────────────────────────────────────────────
 
     // ── Stage 3: Store v3 facts ────────────────────────────────
     updateStage(job, "store_facts", 25);
