@@ -36,6 +36,7 @@ import {
   storyCandidateEvidence,
   graphClusters,
   narratives,
+  stories,
 } from "@/db/schema";
 import { eq, inArray, sql } from "drizzle-orm";
 
@@ -50,6 +51,7 @@ export interface WorkerJob {
   stage: string;
   progress: number;
   error?: string;
+  finishedAt?: string;
 }
 
 /**
@@ -100,7 +102,7 @@ export async function processEvidenceJob(
 
   try {
     // ── Stage 1: Fetch evidence ────────────────────────────────
-    updateStage(job, "fetch_evidence", 5);
+    updateStage({ job, stage: "fetch_evidence", progress: 5 });
     const evidenceRow = db
       .select()
       .from(evidence)
@@ -116,7 +118,7 @@ export async function processEvidenceJob(
     const userId = evidenceRow.createdBy || fallbackUserId || 1;
 
     // ── Stage 2: Extract structured intelligence ───────────────
-    updateStage(job, "extraction", 15);
+    updateStage({ job, stage: "extraction", progress: 15 });
 
     // SAFETY: Wrap extraction in its own try/catch so DB issues don't kill it
     let extractionResult: any = null;
@@ -145,9 +147,9 @@ export async function processEvidenceJob(
 
     // ── SUMMARY GENERATION ──────────────────────────────────────
     try {
-      updateStage(job, "generate_summary", 16);
+      console.log(`[worker] SUMMARY: generating for E${job.evidenceId}`);
       const summary = await generateEvidenceSummary(
-        evidenceRow.text,
+        evidenceRow.content || "",
         evidenceRow.title,
         job.evidenceId
       );
@@ -157,15 +159,18 @@ export async function processEvidenceJob(
           .set({ summary: summaryJson })
           .where(eq(evidence.id, job.evidenceId))
           .run();
-        console.log(`[worker] E${job.evidenceId}: summary stored (${summary.keyFindings.length} findings)`);
+        console.log(`[worker] E${job.evidenceId}: summary STORED (${summary.keyFindings.length} findings)`);
+      } else {
+        console.log(`[worker] E${job.evidenceId}: summary returned null`);
       }
     } catch (sumErr) {
-      console.warn(`[worker] E${job.evidenceId}: summary generation failed (non-fatal)`, sumErr);
+      console.warn(`[worker] E${job.evidenceId}: summary generation FAILED (non-fatal)`, sumErr);
     }
+
     // ─────────────────────────────────────────────────────────────
 
     // ── Stage 3: Store v3 facts ────────────────────────────────
-    updateStage(job, "store_facts", 25);
+    updateStage({ job, stage: "store_facts", progress: 25 });
     if (extractionResult?.structured?.facts?.length > 0) {
       await storeFacts(extractionResult.structured.facts, job.evidenceId);
     } else {
@@ -173,7 +178,7 @@ export async function processEvidenceJob(
     }
 
     // ── Stage 4: Store v3 entities ─────────────────────────────
-    updateStage(job, "store_entities", 30);
+    updateStage({ job, stage: "store_entities", progress: 30 });
     if (extractionResult?.structured?.entities?.length > 0) {
       await storeEntities(extractionResult.structured.entities, job.evidenceId);
     } else {
@@ -181,20 +186,20 @@ export async function processEvidenceJob(
     }
 
     // ── Stage 5: Store v4 intelligence nodes ───────────────────
-    updateStage(job, "store_intelligence", 40);
+    updateStage({ job, stage: "store_intelligence", progress: 40 });
     let intelligenceIds: any = { programIds: [], eventIds: [], problemIds: [], outcomeIds: [], actorIds: [] };
     if (extractionResult?.intelligence) {
       intelligenceIds = await storeIntelligenceNodes(extractionResult.intelligence, job.evidenceId);
     }
 
     // ── Stage 6: Store single-document assessment ──────────────
-    updateStage(job, "store_assessment", 45);
+    updateStage({ job, stage: "store_assessment", progress: 45 });
     if (extractionResult?.singleDocumentAssessment) {
       await storeSingleDocumentAssessment(job.evidenceId, extractionResult.singleDocumentAssessment);
     }
 
     // ── Stage 7: Rebuild story graph (OPTIONAL — non-fatal) ────
-    updateStage(job, "rebuild_graph", 60);
+    updateStage({ job, stage: "rebuild_graph", progress: 60 });
     try {
       const allEvidence = db.select({ id: evidence.id }).from(evidence).all();
       const allEvidenceIds = allEvidence.map((e) => e.id);
@@ -210,15 +215,41 @@ export async function processEvidenceJob(
     }
 
     // ── Stage 8: Generate narratives (OPTIONAL — non-fatal) ────
-    updateStage(job, "generate_narratives", 85);
+    updateStage({ job, stage: "generate_narratives", progress: 85 });
     try {
       await generateNarrativesForValidatedStories();
     } catch (narrErr) {
       console.error(`[worker] Narrative generation failed (non-fatal):`, narrErr);
     }
 
+    // ── AUTO-CREATE STORY ───────────────────────────────────────
+    try {
+      // Use evidence title as narrative title if available
+      const narrativeTitle = evidenceRow?.title || `Story from evidence ${job.evidenceId}`;
+      
+      // Check if a story already exists for this candidate
+      const existingStory = db.select()
+        .from(stories)
+        .where(eq(stories.title, narrativeTitle))
+        .get();
+
+      if (!existingStory) {
+        db.insert(stories).values({
+          title: narrativeTitle,
+          overview: evidenceRow?.summary || "Auto-discovered story",
+          status: "active",
+          confidence: 0.5,
+          createdBy: 1,
+        }).run();
+        console.log(`[worker] Auto-created story: "${narrativeTitle}"`);
+      }
+    } catch (storyErr) {
+      console.warn(`[worker] Auto-story creation failed (non-fatal):`, storyErr);
+    }
+    // ─────────────────────────────────────────────────────────────
+
     // ── Done ───────────────────────────────────────────────────
-    updateStage(job, "complete", 100);
+    updateStage({ job, stage: "complete", progress: 100 });
     const duration = Date.now() - startTime;
     console.log(`[worker] ✅ Job ${job.id} completed in ${duration}ms`);
 
@@ -227,6 +258,8 @@ export async function processEvidenceJob(
     console.error(`[worker] ❌ Job ${job.id} failed:`, errorMessage);
     job.status = "failed";
     job.error = errorMessage;
+  } finally {
+    job.finishedAt = new Date().toISOString();
   }
 }
 
@@ -234,7 +267,7 @@ export async function processEvidenceJob(
 // STAGE HELPERS
 // ═════════════════════════════════════════════════════════════════
 
-function updateStage(job: WorkerJob, stage: string, progress: number): void {
+function updateStage({ job, stage, progress }: { job: WorkerJob; stage: string; progress: number; }): void {
   job.stage = stage;
   job.progress = progress;
   console.log(`[worker] Job ${job.id}: ${stage} (${progress}%)`);
@@ -297,7 +330,6 @@ async function storeEntities(
         const result = db.insert(entities).values({
           name: ent.name,
           type: ent.type || "unknown",
-          normalizedName: ent.name.toLowerCase().trim(),
           createdBy: 1, // TODO: pass actual userId
         }).run();
         entityId = Number(result.lastInsertRowid);
@@ -308,8 +340,6 @@ async function storeEntities(
       db.insert(evidenceEntities).values({
         evidenceId,
         entityId,
-        mentions: ent.mentions ?? 1,
-        context: ent.context || null,
       }).run();
       success++;
 
@@ -756,7 +786,7 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
       description: `Auto-discovered cluster of ${component.length} evidence items sharing programs or problems.`,
       coherenceScore: 0.5,
       confidence: 0.5,
-      status: "candidate",
+      status: "pending",
       reasons: JSON.stringify(["Auto-discovered via shared programs/problems"]),
       relationshipCounts: JSON.stringify({ strong: 0, medium: 0, weak: 0, total: 0 }),
     }).run();
@@ -795,7 +825,7 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
       description: `Self-contained narrative in evidence E${assessment.evidenceId}. ${assessment.assessmentReason}`,
       coherenceScore: assessment.narrativeCompletenessScore || 0.5,
       confidence: (assessment.narrativeCompletenessScore || 0.5) * 0.9,
-      status: "candidate",
+      status: "pending",
       reasons: JSON.stringify(["Single-document story"]),
       relationshipCounts: JSON.stringify({ strong: 0, medium: 0, weak: 0, total: 0 }),
     }).run();
@@ -980,10 +1010,10 @@ async function buildEvidenceContexts(evidenceIds: number[], intelligenceMap: Map
 
 async function generateNarrativesForValidatedStories(): Promise<void> {
   try {
-    // FIX: Include candidate, keep, and story statuses — not just "validated"
+    // FIX: Include validated, promoted, and story statuses
     const allCandidates = db.select()
       .from(storyCandidates)
-      .where(inArray(storyCandidates.status, ["validated", "candidate", "keep", "story"]))
+      .where(inArray(storyCandidates.status, ["validated", "promoted", "story"]))
       .all();
 
     if ((allCandidates as any[]).length === 0) {
@@ -995,12 +1025,13 @@ async function generateNarrativesForValidatedStories(): Promise<void> {
 
     for (const candidate of allCandidates as any[]) {
       try {
-        // Skip if narrative already exists for this candidate
+        // Skip only if THIS candidate already has a narrative (check by clusterIds, not title)
+        const candidateIdStr = JSON.stringify([candidate.id]);
         const existing = db.select().from(narratives)
-          .where(eq(narratives.title, candidate.name))
+          .where(eq(narratives.clusterIds, candidateIdStr))
           .get();
         if (existing) {
-          console.log(`[worker] Narrative "${candidate.name}" already exists, skipping`);
+          console.log(`[worker] Candidate ${candidate.id} already has a narrative, skipping`);
           continue;
         }
 
@@ -1029,7 +1060,7 @@ async function generateNarrativesForValidatedStories(): Promise<void> {
                 id: eid,
                 title: ev.title || `Evidence ${eid}`,
                 summary: (ev.content || "").slice(0, 300),
-                topics: { topics: [] },
+                topics: { topics: [], themes: [], geographicFocus: [], temporalRange: { start: "", end: "" }, keyEntities: [], sector: [] },
                 entities: [],
               });
             }
@@ -1109,3 +1140,5 @@ export async function triggerFullCorpusRebuild(): Promise<void> {
     console.log("[worker] Full corpus rebuild complete:", result.message);
   }
 }
+
+
