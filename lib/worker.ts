@@ -288,30 +288,53 @@ async function storeEntities(
   if (!entitiesList || entitiesList.length === 0) return;
 
   let success = 0;
+  let linked = 0;
+  let deduped = 0;
+
   for (const ent of entitiesList) {
+    const normalizedName = (ent.name || "").trim();
+    if (!normalizedName) continue;
+
     try {
-      const existing = db.select().from(entities).where(eq(entities.name, ent.name)).get();
+      let existing = db.select().from(entities).where(eq(entities.name, normalizedName)).get();
+
+      if (!existing) {
+        const allEntities = db.select().from(entities).all();
+        existing = allEntities.find(e => e.name.toLowerCase() === normalizedName.toLowerCase());
+      }
 
       let entityId: number;
       if (existing) {
         entityId = existing.id;
+        deduped++;
       } else {
         const result = db.insert(entities).values({
-          name: ent.name,
+          name: normalizedName,
           type: ent.type || "unknown",
+          aliases: "[]",
           createdBy: 1,
         }).run();
         entityId = Number(result.lastInsertRowid);
       }
 
-      db.insert(evidenceEntities).values({ evidenceId, entityId }).run();
+      try {
+        db.insert(evidenceEntities).values({ evidenceId, entityId }).run();
+        linked++;
+      } catch (linkErr: any) {
+        if (!linkErr.message?.includes("UNIQUE constraint failed")) {
+          console.error(`[worker] Failed to link entity ${entityId} to evidence ${evidenceId}:`, linkErr);
+        }
+      }
+
       success++;
     } catch (err) {
-      console.error(`[worker] Failed to store entity "${ent.name}":`, err);
+      console.error(`[worker] Failed to store entity "${normalizedName}":`, err);
     }
   }
-  console.log(`[worker] Stored ${success}/${entitiesList.length} entities`);
+
+  console.log(`[worker] Entities: ${success} processed (${success - deduped} new, ${deduped} existing), ${linked} linked to evidence ${evidenceId}`);
 }
+
 
 // ═════════════════════════════════════════════════════════════════
 // NEW: CREATE ENTITY RELATIONSHIPS FROM FACTS
@@ -320,63 +343,88 @@ async function storeEntities(
 async function createRelationshipsFromFacts(evidenceId: number): Promise<void> {
   console.log(`[worker] Creating entity relationships from facts for E${evidenceId}`);
 
-  // Get all facts for this evidence
   const factRows = db.select().from(facts).where(eq(facts.evidenceId, evidenceId)).all();
   if (factRows.length === 0) {
-    console.log(`[worker] No facts to build relationships from`);
+    console.log(`[worker] No facts to build relationships from for E${evidenceId}`);
     return;
   }
 
-  // Get all entities for name matching
   const entityRows = db.select().from(entities).all();
   const entityMap = new Map<string, number>();
   for (const e of entityRows) {
-    entityMap.set(e.name.toLowerCase(), e.id);
-    // Common aliases
-    const lower = e.name.toLowerCase();
-    if (lower.includes('african development bank')) entityMap.set('afdb', e.id);
-    if (lower.includes('zesco')) entityMap.set('zesco limited', e.id);
-    if (lower.includes('zambia')) entityMap.set('republic of zambia', e.id);
-    if (lower.includes('zimbabwe')) entityMap.set('republic of zimbabwe', e.id);
-  }
-
-  let created = 0;
-  for (const fact of factRows) {
-    const subjId = entityMap.get((fact.subject || '').toLowerCase().trim());
-    const objId = entityMap.get((fact.object || '').toLowerCase().trim());
-
-    if (subjId && objId && subjId !== objId) {
-      try {
-        db.insert(relationships).values({
-          sourceEntityId: subjId,
-          targetEntityId: objId,
-          type: fact.predicate || 'related',
-          evidenceId,
-          weight: fact.confidence ?? 0.7,
-          confidence: fact.confidence ?? 0.75,
-        }).run();
-        created++;
-      } catch (e) {
-        // Try alternate schema
-        try {
-          db.insert(relationships).values({
-            source_entity_id: subjId,
-            target_entity_id: objId,
-            type: fact.predicate || 'related',
-            evidence_id: evidenceId,
-            weight: fact.confidence ?? 0.7,
-            confidence: fact.confidence ?? 0.75,
-          }).run();
-          created++;
-        } catch (e2) {
-          // Schema mismatch — skip
-        }
+    entityMap.set(e.name.toLowerCase().trim(), e.id);
+    try {
+      const aliases: string[] = JSON.parse(e.aliases || "[]");
+      for (const alias of aliases) {
+        if (alias) entityMap.set(String(alias).toLowerCase().trim(), e.id);
       }
+    } catch {
+      // ignore alias parse errors
     }
   }
 
-  console.log(`[worker] Created ${created} entity relationships from ${factRows.length} facts`);
+  let created = 0;
+  let updated = 0;
+  let skipped = 0;
+
+  for (const fact of factRows) {
+    const subjName = (fact.subject || "").toLowerCase().trim();
+    const objName = (fact.object || "").toLowerCase().trim();
+    const subjId = entityMap.get(subjName);
+    const objId = entityMap.get(objName);
+
+    if (!subjId || !objId) {
+      skipped++;
+      continue;
+    }
+    if (subjId === objId) {
+      skipped++;
+      continue;
+    }
+
+    const relType = (fact.predicate || "related").toLowerCase().trim();
+
+    try {
+      const existing = db
+        .select()
+        .from(relationships)
+        .where(
+          sql`${relationships.sourceId} = ${subjId} AND ${relationships.targetId} = ${objId} AND ${relationships.type} = ${relType}`
+        )
+        .get();
+
+      if (existing) {
+        const existingIds: number[] = JSON.parse(existing.evidenceIds || "[]");
+        if (!existingIds.includes(evidenceId)) {
+          existingIds.push(evidenceId);
+          db.update(relationships)
+            .set({
+              evidenceIds: JSON.stringify(existingIds),
+              confidence: Math.max(existing.confidence, fact.confidence ?? 0.75),
+            })
+            .where(eq(relationships.id, existing.id))
+            .run();
+          updated++;
+        }
+      } else {
+        db.insert(relationships).values({
+          sourceId: subjId,
+          targetId: objId,
+          type: relType,
+          confidence: fact.confidence ?? 0.75,
+          evidenceIds: JSON.stringify([evidenceId]),
+          createdBy: 1,
+        }).run();
+        created++;
+      }
+    } catch (e) {
+      console.error(`[worker] Failed to create relationship ${subjId}->${objId} (${relType}):`, e);
+    }
+  }
+
+  console.log(`[worker] Relationships from facts for E${evidenceId}: ${created} created, ${updated} updated, ${skipped} skipped (from ${factRows.length} facts)`);
 }
+
 
 // ═════════════════════════════════════════════════════════════════
 // NEW: STORE TIMELINE EVENTS
@@ -386,127 +434,96 @@ async function storeTimelineEvents(evidenceId: number, text: string, title: stri
   console.log(`[worker] Extracting timeline events for E${evidenceId}`);
 
   const fullText = `${title} ${text}`;
-  const events: Array<{ date: string; description: string; eventType: string; significance: number }> = [];
+  const extractedEvents: Array<{ date: string; title: string; description: string }> = [];
 
-  // Pattern 1: Explicit dates with events
   const explicitDatePattern = /(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}/gi;
   const quarterPattern = /\b(Q[1-4]\s+\d{4})\b/gi;
-  const yearPattern = /\b(202[4-9]|2030)\b/g;
+  const yearPattern = /\b(20\d{2})\b/g;
 
-  // Event context patterns
   const eventPatterns = [
-    { regex: /(?:approved|approves|approval).{0,60}(?:loan|grant|financing)/gi, type: 'Financing', sig: 0.9 },
-    { regex: /(?:construction|implementation|execution).{0,60}(?:begins|starts|commenced|scheduled)/gi, type: 'Project Start', sig: 0.8 },
-    { regex: /(?:completion|completed|finished|operational).{0,60}(?:by|in|target|expected)/gi, type: 'Project Milestone', sig: 0.8 },
-    { regex: /(?:tender|procurement|contract).{0,60}(?:issued|awarded|signed)/gi, type: 'Procurement', sig: 0.75 },
-    { regex: /(?:crisis|shortage|deficit|decline).{0,60}(?:\d+%|percent)/gi, type: 'Crisis', sig: 0.85 },
-    { regex: /(?:drought|flood|disaster|El Niño).{0,60}(?:destroyed|damaged|affected)/gi, type: 'Climate Event', sig: 0.8 },
+    { regex: /(?:approved|approves|approval).{0,60}(?:loan|grant|financing)/gi, label: "Financing Approval" },
+    { regex: /(?:construction|implementation|execution).{0,60}(?:begins|starts|commenced|scheduled)/gi, label: "Project Start" },
+    { regex: /(?:completion|completed|finished|operational).{0,60}(?:by|in|target|expected)/gi, label: "Project Milestone" },
+    { regex: /(?:tender|procurement|contract).{0,60}(?:issued|awarded|signed)/gi, label: "Procurement Event" },
+    { regex: /(?:crisis|shortage|deficit|decline).{0,60}(?:\d+%|percent)/gi, label: "Crisis Event" },
+    { regex: /(?:drought|flood|disaster|El Niño).{0,60}(?:destroyed|damaged|affected)/gi, label: "Climate Event" },
   ];
 
-  // Extract events with nearby dates
   for (const ep of eventPatterns) {
     const matches = fullText.match(ep.regex);
-    if (matches) {
-      for (const match of matches) {
-        const idx = fullText.indexOf(match);
-        const context = fullText.substring(Math.max(0, idx - 150), Math.min(fullText.length, idx + match.length + 150));
+    if (!matches) continue;
 
-        let dateStr: string | null = null;
+    for (const match of matches) {
+      const idx = fullText.indexOf(match);
+      const context = fullText.substring(
+        Math.max(0, idx - 150),
+        Math.min(fullText.length, idx + match.length + 150)
+      );
 
-        // Try to find date in context
-        const explicitMatch = context.match(explicitDatePattern);
-        if (explicitMatch) {
-          const d = new Date(explicitMatch[0]);
-          if (!isNaN(d.getTime())) dateStr = d.toISOString().split('T')[0];
-        }
+      let dateStr: string | null = null;
 
-        if (!dateStr) {
-          const quarterMatch = context.match(quarterPattern);
-          if (quarterMatch) {
-            const q = quarterMatch[0];
-            const year = q.match(/\d{4}/)?.[0];
-            const qNum = q.match(/Q([1-4])/)?.[1];
-            if (year && qNum) {
-              const month = (parseInt(qNum) - 1) * 3 + 1;
-              dateStr = `${year}-${month.toString().padStart(2, '0')}-01`;
-            }
+      const explicitMatch = context.match(explicitDatePattern);
+      if (explicitMatch) {
+        const d = new Date(explicitMatch[0]);
+        if (!isNaN(d.getTime())) dateStr = d.toISOString().split("T")[0];
+      }
+
+      if (!dateStr) {
+        const quarterMatch = context.match(quarterPattern);
+        if (quarterMatch) {
+          const q = quarterMatch[0];
+          const year = q.match(/\d{4}/)?.[0];
+          const qNum = q.match(/Q([1-4])/)?.[1];
+          if (year && qNum) {
+            const month = (parseInt(qNum) - 1) * 3 + 1;
+            dateStr = `${year}-${month.toString().padStart(2, "0")}-01`;
           }
         }
+      }
 
-        if (!dateStr) {
-          const yearMatch = context.match(yearPattern);
-          if (yearMatch) {
-            dateStr = `${yearMatch[0]}-01-01`;
-          }
+      if (!dateStr) {
+        const yearMatch = context.match(yearPattern);
+        if (yearMatch) {
+          dateStr = `${yearMatch[0]}-01-01`;
         }
+      }
 
-        if (dateStr) {
-          events.push({
-            date: dateStr,
-            description: match.trim().substring(0, 200),
-            eventType: ep.type,
-            significance: ep.sig,
-          });
-        }
+      if (dateStr) {
+        extractedEvents.push({
+          date: dateStr,
+          title: ep.label,
+          description: match.trim().substring(0, 200),
+        });
       }
     }
   }
 
-  // Known specific dates from document themes
-  const knownDates = [
-    { regex: /December\s+2028/i, date: '2028-12-01', desc: 'Project completion target', type: 'Milestone' },
-    { regex: /Q1\s+2027/i, date: '2027-01-01', desc: 'Implementation start', type: 'Project Start' },
-    { regex: /Q4\s+2029/i, date: '2029-10-01', desc: 'Project completion', type: 'Milestone' },
-    { regex: /June\s+2024/i, date: '2024-06-01', desc: 'Tender deadline', type: 'Procurement' },
-    { regex: /July\s+2026/i, date: '2026-07-01', desc: 'Crisis report date', type: 'Crisis' },
-  ];
-
-  for (const kd of knownDates) {
-    if (fullText.match(kd.regex)) {
-      events.push({
-        date: kd.date,
-        description: kd.desc,
-        eventType: kd.type,
-        significance: 0.85,
-      });
-    }
-  }
-
-  // Store unique events
   const seen = new Set<string>();
   let stored = 0;
-  for (const ev of events) {
+
+  for (const ev of extractedEvents) {
     const key = `${ev.date}-${ev.description}`;
     if (seen.has(key)) continue;
     seen.add(key);
 
     try {
       db.insert(timelineEvents).values({
-        evidenceId,
-        eventDate: ev.date,
+        date: ev.date,
+        title: ev.title,
         description: ev.description,
-        eventType: ev.eventType,
-        significance: ev.significance,
+        evidenceId,
+        entityIds: "[]",
+        createdBy: 1,
       }).run();
       stored++;
     } catch (e) {
-      try {
-        db.insert(timelineEvents).values({
-          evidence_id: evidenceId,
-          event_date: ev.date,
-          description: ev.description,
-          event_type: ev.eventType,
-          significance: ev.significance,
-        }).run();
-        stored++;
-      } catch (e2) {
-        // Schema mismatch
-      }
+      console.error(`[worker] Failed to store timeline event for E${evidenceId}:`, e);
     }
   }
 
   console.log(`[worker] Stored ${stored} timeline events for E${evidenceId}`);
 }
+
 
 // ═════════════════════════════════════════════════════════════════
 // INTELLIGENCE NODE STORAGE
@@ -791,6 +808,8 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
   for (const eid of allEvidenceIds) adjacency.set(eid, new Set());
 
   let edgeCount = 0;
+  let connCount = 0;
+  let graphEdgeCount = 0;
 
   for (let i = 0; i < allEvidenceIds.length; i++) {
     const eid = allEvidenceIds[i];
@@ -843,50 +862,49 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
 
           adjacency.get(eid)!.add(otherId);
           adjacency.get(otherId)!.add(eid);
-        } catch {
-          // Unique constraint
+        } catch (e: any) {
+          if (!e.message?.includes("UNIQUE constraint failed")) {
+            console.error(`[worker] Failed to insert story relationship ${sourceId}-${targetId}:`, e);
+          }
         }
 
-        // Also create evidence_connections and story_graph_edges
         try {
           db.insert(evidenceConnections).values({
-            sourceEvidenceId: sourceId,
-            targetEvidenceId: targetId,
+            evidenceIdA: sourceId,
+            evidenceIdB: targetId,
+            signalType: weight > 0.6 ? "strong_connection" : "shared_context",
             strength: weight,
-            type: weight > 0.6 ? "strong" : "related",
+            reason: reason || "Shared context",
           }).run();
-        } catch {
-          try {
-            db.insert(evidenceConnections).values({
-              sourceId, targetId,
-              strength: weight,
-              type: weight > 0.6 ? "strong" : "related",
-            }).run();
-          } catch {}
+          connCount++;
+        } catch (e: any) {
+          if (!e.message?.includes("UNIQUE constraint failed")) {
+            console.error(`[worker] Failed to insert evidence connection ${sourceId}-${targetId}:`, e);
+          }
         }
 
         try {
           db.insert(storyGraphEdges).values({
-            sourceId: String(sourceId),
-            targetId: String(targetId),
+            evidenceIdA: sourceId,
+            evidenceIdB: targetId,
+            relationshipType: weight > 0.6 ? "strong_connection" : "shared_context",
             weight,
-            type: weight > 0.6 ? "strong" : "related",
+            confidence: 0.6,
+            explicit: true,
+            explanation: reason || "Shared context",
+            sourceEvidence: "simple_graph",
           }).run();
-        } catch {
-          try {
-            db.insert(storyGraphEdges).values({
-              source_id: sourceId,
-              target_id: targetId,
-              weight,
-              type: weight > 0.6 ? "strong" : "related",
-            }).run();
-          } catch {}
+          graphEdgeCount++;
+        } catch (e: any) {
+          if (!e.message?.includes("UNIQUE constraint failed")) {
+            console.error(`[worker] Failed to insert story graph edge ${sourceId}-${targetId}:`, e);
+          }
         }
       }
     }
   }
 
-  console.log(`[worker] Simple graph built: ${edgeCount} edges, plus evidence_connections and story_graph_edges`);
+  console.log(`[worker] Simple graph built: ${edgeCount} storyRelationships, ${connCount} evidenceConnections, ${graphEdgeCount} storyGraphEdges`);
 
   // Find connected components
   const visited = new Set<number>();
@@ -953,7 +971,7 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
       const ev = db.select({ title: evidence.title }).from(evidence).where(eq(evidence.id, eid)).get();
       return ev?.title || `Evidence ${eid}`;
     });
-    return `Auto-discovered story from ${component.length} related evidence items: ${evTitles.map((t) => `"${t.substring(0, 60)}..."`).join(", ")}`;
+    return `Auto-discovered story from ${component.length} related evidence items: ${evTitles.map((t) => `\"${t.substring(0, 60)}...\"`).join(", ")}`;
   }
 
   let storyCount = 0;
@@ -963,26 +981,46 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
   for (const component of components) {
     const name = generateClusterName(component);
     const overview = generateClusterOverview(component);
+    const evidenceIdsJson = JSON.stringify(component);
 
-    const existingCand = db.select().from(storyCandidates).where(eq(storyCandidates.name, name)).get();
-    let candidateId: number;
-    if (existingCand) {
-      candidateId = existingCand.id;
+    // Idempotent candidate creation: check by evidence signature
+    let candidateId: number | null = null;
+    const allCandidates = db.select().from(storyCandidates).all();
+    for (const cand of allCandidates as any[]) {
+      try {
+        const candIds: number[] = JSON.parse(cand.evidenceIds || "[]");
+        if (candIds.length === component.length && component.every((id) => candIds.includes(id))) {
+          candidateId = cand.id;
+          break;
+        }
+      } catch {
+        // ignore parse errors
+      }
+    }
+
+    if (candidateId) {
+      console.log(`[worker] Reusing existing candidate ${candidateId} for component [${component.join(",")}]`);
     } else {
       const candResult = db.insert(storyCandidates).values({
         name,
         description: overview,
+        evidenceIds: evidenceIdsJson,
+        seedType: "program_cluster",
         coherenceScore: Math.min(0.95, 0.5 + component.length * 0.1),
         confidence: Math.min(0.95, 0.5 + component.length * 0.08),
         status: component.length >= 2 ? "story" : "candidate",
         reasons: JSON.stringify(["Auto-discovered via shared programs/problems/entities"]),
         relationshipCounts: JSON.stringify({ strong: 0, medium: 0, weak: 0, total: 0 }),
+        isValid: component.length >= 2,
+        provenanceEdges: "[]",
       }).run();
       candidateId = Number(candResult.lastInsertRowid);
       candidateCount++;
       console.log(`[worker] Created story candidate ${candidateId}: "${name}" (${component.length} items)`);
     }
 
+    // Link evidence to candidate (idempotent)
+    let linkedCount = 0;
     for (const eid of component) {
       try {
         db.insert(storyCandidateEvidence).values({
@@ -991,10 +1029,20 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
           role: "member",
           attachmentReason: "Shared context",
         }).run();
-      } catch {}
+        linkedCount++;
+      } catch (e: any) {
+        if (!e.message?.includes("UNIQUE constraint failed")) {
+          console.error(`[worker] Failed to link evidence ${eid} to candidate ${candidateId}:`, e);
+        }
+      }
+    }
+    if (linkedCount > 0) {
+      console.log(`[worker] Linked ${linkedCount} evidence items to candidate ${candidateId}`);
     }
 
+    // Only create stories for multi-evidence clusters (>= 2)
     if (component.length >= 2) {
+      // Idempotent story creation: check by title
       const existingStory = db.select().from(stories).where(eq(stories.title, name)).get();
       if (!existingStory) {
         const storyResult = db.insert(stories).values({
@@ -1012,6 +1060,7 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
         storyCount++;
         console.log(`[worker] Created story S${storyId}: "${name}" (${component.length} evidence)`);
 
+        let storyLinked = 0;
         for (const eid of component) {
           try {
             db.insert(storyEvidence).values({
@@ -1020,8 +1069,16 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
               confidence: 0.75,
               relationshipType: "related",
             }).run();
-          } catch {}
+            storyLinked++;
+          } catch (e: any) {
+            if (!e.message?.includes("UNIQUE constraint failed")) {
+              console.error(`[worker] Failed to link evidence ${eid} to story ${storyId}:`, e);
+            }
+          }
         }
+        console.log(`[worker] Linked ${storyLinked} evidence items to story S${storyId}`);
+      } else {
+        console.log(`[worker] Story already exists for "${name}", skipping`);
       }
     }
   }
@@ -1029,9 +1086,6 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
   console.log(`[worker] Created ${storyCount} stories and ${candidateCount} candidates total`);
 }
 
-// ═════════════════════════════════════════════════════════════════
-// DATA LOADING HELPERS
-// ═════════════════════════════════════════════════════════════════
 
 async function loadIntelligenceMap(evidenceIds: number[]): Promise<Map<number, any>> {
   const map = new Map<number, any>();

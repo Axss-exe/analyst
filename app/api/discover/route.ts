@@ -172,7 +172,7 @@ async function buildClusterViews(): Promise<ClusterView[]> {
   const allLinks = await db.select().from(storyCandidateEvidence).all();
   const evidenceMap = new Map<number, number[]>();
   for (const link of allLinks) {
-    const cid = link.candidateId;
+    const cid = link.storyCandidateId;
     const eid = link.evidenceId;
     if (!evidenceMap.has(cid)) evidenceMap.set(cid, []);
     evidenceMap.get(cid)!.push(eid);

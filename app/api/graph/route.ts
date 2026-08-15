@@ -166,8 +166,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const candidateLinks = await db.select().from(storyCandidateEvidence).all();
       const linkMap = new Map<number, number[]>();
       for (const link of candidateLinks) {
-        if (!linkMap.has(link.candidateId)) linkMap.set(link.candidateId, []);
-        linkMap.get(link.candidateId)!.push(link.evidenceId);
+        if (!linkMap.has(link.storyCandidateId)) linkMap.set(link.storyCandidateId, []);
+        linkMap.get(link.storyCandidateId)!.push(link.evidenceId);
       }
       clusterRows = candidates.map((c: any) => ({
         id: c.id,
@@ -210,7 +210,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Stats
     const totalEvidence = evidenceRows.length;
     const entityCount = await db.select({ count: sql<number>`count(*)` })
-      .from(db.select({ id: sql<number>`distinct entity_id` }).from(facts).as("entities"))
+      .from(entities)
       .get();
 
     const stats: GraphStats = {

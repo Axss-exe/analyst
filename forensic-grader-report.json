@@ -1,0 +1,4732 @@
+{
+  "metadata": {
+    "generatedAt": "2026-08-15T17:51:33.585Z",
+    "dbPath": "C:\\Users\\tmaki\\Downloads\\analyst\\atis.db",
+    "readOnly": true
+  },
+  "database": {
+    "rowCounts": {
+      "actors": 38,
+      "audit_log": 60,
+      "context_graph_edges": 0,
+      "entities": 78,
+      "events": 19,
+      "evidence": 5,
+      "evidence_actors": 47,
+      "evidence_connections": 0,
+      "evidence_entities": 94,
+      "evidence_events": 19,
+      "evidence_imports": 1,
+      "evidence_outcomes": 30,
+      "evidence_problems": 25,
+      "evidence_programs": 27,
+      "evidence_story_assessment": 5,
+      "facts": 104,
+      "generated_briefs": 0,
+      "graph_clusters": 7,
+      "jobs": 0,
+      "narrative_checks": 0,
+      "narratives": 0,
+      "notifications": 0,
+      "outcomes": 29,
+      "problems": 24,
+      "programs": 25,
+      "relationships": 3,
+      "research_tasks": 0,
+      "settings": 1,
+      "sqlite_sequence": 30,
+      "stories": 0,
+      "story_candidate_evidence": 16,
+      "story_candidates": 7,
+      "story_evidence": 0,
+      "story_graph_edges": 0,
+      "story_relationships": 42,
+      "task_entities": 0,
+      "task_evidence": 0,
+      "templates": 7,
+      "timeline_events": 7,
+      "users": 1
+    },
+    "orphanedForeignKeys": [],
+    "nullForeignKeys": [
+      {
+        "table": "timeline_events",
+        "column": "story_id",
+        "nullCount": 7
+      }
+    ]
+  },
+  "schema": {
+    "tables": [
+      "actors",
+      "audit_log",
+      "context_graph_edges",
+      "entities",
+      "events",
+      "evidence",
+      "evidence_actors",
+      "evidence_connections",
+      "evidence_entities",
+      "evidence_events",
+      "evidence_imports",
+      "evidence_outcomes",
+      "evidence_problems",
+      "evidence_programs",
+      "evidence_story_assessment",
+      "facts",
+      "generated_briefs",
+      "graph_clusters",
+      "jobs",
+      "narrative_checks",
+      "narratives",
+      "notifications",
+      "outcomes",
+      "problems",
+      "programs",
+      "relationships",
+      "research_tasks",
+      "settings",
+      "sqlite_sequence",
+      "stories",
+      "story_candidate_evidence",
+      "story_candidates",
+      "story_evidence",
+      "story_graph_edges",
+      "story_relationships",
+      "task_entities",
+      "task_evidence",
+      "templates",
+      "timeline_events",
+      "users"
+    ],
+    "detailed": {
+      "actors": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "name",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "normalized_name",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "actor_type",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [],
+        "indexes": []
+      },
+      "audit_log": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "user_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "action",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "target_type",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "target_id",
+            "type": "INTEGER",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "previous_value",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "new_value",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "user_id",
+            "to": "id",
+            "table": "users"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "audit_target_idx",
+            "unique": 0
+          },
+          {
+            "name": "audit_action_idx",
+            "unique": 0
+          },
+          {
+            "name": "audit_user_idx",
+            "unique": 0
+          }
+        ]
+      },
+      "context_graph_edges": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_id_a",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_id_b",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "relationship_type",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "weight",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0"
+          },
+          {
+            "name": "confidence",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0.5"
+          },
+          {
+            "name": "explanation",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "''"
+          },
+          {
+            "name": "source_evidence",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "''"
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "evidence_id_b",
+            "to": "id",
+            "table": "evidence"
+          },
+          {
+            "from": "evidence_id_a",
+            "to": "id",
+            "table": "evidence"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "context_edge_type_idx",
+            "unique": 0
+          },
+          {
+            "name": "context_edge_b_idx",
+            "unique": 0
+          },
+          {
+            "name": "context_edge_a_idx",
+            "unique": 0
+          },
+          {
+            "name": "context_edge_unique_idx",
+            "unique": 1
+          }
+        ]
+      },
+      "entities": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "name",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "type",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "aliases",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'[]'"
+          },
+          {
+            "name": "metadata",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_by",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "created_by",
+            "to": "id",
+            "table": "users"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "entities_name_idx",
+            "unique": 0
+          },
+          {
+            "name": "entities_type_idx",
+            "unique": 0
+          }
+        ]
+      },
+      "events": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "name",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "normalized_name",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "description",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "temporal_info",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "event_type",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [],
+        "indexes": []
+      },
+      "evidence": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "title",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "summary",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "source",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "source_type",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "publication_date",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "collection_date",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          },
+          {
+            "name": "confidence",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0.5"
+          },
+          {
+            "name": "tags",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'[]'"
+          },
+          {
+            "name": "ai_metadata",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "file_path",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_by",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          },
+          {
+            "name": "content",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "created_by",
+            "to": "id",
+            "table": "users"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "evidence_tags_idx",
+            "unique": 0
+          },
+          {
+            "name": "evidence_created_by_idx",
+            "unique": 0
+          }
+        ]
+      },
+      "evidence_actors": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "actor_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "confidence",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0.5"
+          },
+          {
+            "name": "explicit",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "true"
+          },
+          {
+            "name": "reason",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "actor_id",
+            "to": "id",
+            "table": "actors"
+          },
+          {
+            "from": "evidence_id",
+            "to": "id",
+            "table": "evidence"
+          }
+        ],
+        "indexes": []
+      },
+      "evidence_connections": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_id_a",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_id_b",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "signal_type",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "strength",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0.5"
+          },
+          {
+            "name": "reason",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "metadata",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "evidence_id_b",
+            "to": "id",
+            "table": "evidence"
+          },
+          {
+            "from": "evidence_id_a",
+            "to": "id",
+            "table": "evidence"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "evidence_conn_signal_idx",
+            "unique": 0
+          },
+          {
+            "name": "evidence_conn_b_idx",
+            "unique": 0
+          },
+          {
+            "name": "evidence_conn_a_idx",
+            "unique": 0
+          },
+          {
+            "name": "evidence_connection_unique_idx",
+            "unique": 1
+          }
+        ]
+      },
+      "evidence_entities": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "entity_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "entity_id",
+            "to": "id",
+            "table": "entities"
+          },
+          {
+            "from": "evidence_id",
+            "to": "id",
+            "table": "evidence"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "evidence_entity_unique_idx",
+            "unique": 1
+          }
+        ]
+      },
+      "evidence_events": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "event_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "confidence",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0.5"
+          },
+          {
+            "name": "explicit",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "true"
+          },
+          {
+            "name": "reason",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "event_id",
+            "to": "id",
+            "table": "events"
+          },
+          {
+            "from": "evidence_id",
+            "to": "id",
+            "table": "evidence"
+          }
+        ],
+        "indexes": []
+      },
+      "evidence_imports": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "filename",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "records",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "status",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'pending'"
+          },
+          {
+            "name": "total_records",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "0"
+          },
+          {
+            "name": "processed_count",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "0"
+          },
+          {
+            "name": "failed_count",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "0"
+          },
+          {
+            "name": "cooldown_seconds",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "300"
+          },
+          {
+            "name": "current_index",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "0"
+          },
+          {
+            "name": "error_log",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_by",
+            "type": "INTEGER",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "updated_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          }
+        ],
+        "foreignKeys": [],
+        "indexes": []
+      },
+      "evidence_outcomes": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "outcome_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "confidence",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0.5"
+          },
+          {
+            "name": "explicit",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "true"
+          },
+          {
+            "name": "reason",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "outcome_id",
+            "to": "id",
+            "table": "outcomes"
+          },
+          {
+            "from": "evidence_id",
+            "to": "id",
+            "table": "evidence"
+          }
+        ],
+        "indexes": []
+      },
+      "evidence_problems": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "problem_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "confidence",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0.5"
+          },
+          {
+            "name": "explicit",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "true"
+          },
+          {
+            "name": "reason",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "problem_id",
+            "to": "id",
+            "table": "problems"
+          },
+          {
+            "from": "evidence_id",
+            "to": "id",
+            "table": "evidence"
+          }
+        ],
+        "indexes": []
+      },
+      "evidence_programs": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "program_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "confidence",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0.5"
+          },
+          {
+            "name": "explicit",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "true"
+          },
+          {
+            "name": "reason",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "program_id",
+            "to": "id",
+            "table": "programs"
+          },
+          {
+            "from": "evidence_id",
+            "to": "id",
+            "table": "evidence"
+          }
+        ],
+        "indexes": []
+      },
+      "evidence_story_assessment": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "has_problem",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "false"
+          },
+          {
+            "name": "has_intervention",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "false"
+          },
+          {
+            "name": "has_outcome",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "false"
+          },
+          {
+            "name": "has_program",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "false"
+          },
+          {
+            "name": "has_event",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "false"
+          },
+          {
+            "name": "narrative_completeness_score",
+            "type": "REAL",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "can_be_single_document_story",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "false"
+          },
+          {
+            "name": "assessment_reason",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "updated_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "evidence_id",
+            "to": "id",
+            "table": "evidence"
+          }
+        ],
+        "indexes": []
+      },
+      "facts": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "subject",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "predicate",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "object",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "confidence",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0.5"
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "evidence_id",
+            "to": "id",
+            "table": "evidence"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "facts_subject_idx",
+            "unique": 0
+          },
+          {
+            "name": "facts_evidence_idx",
+            "unique": 0
+          }
+        ]
+      },
+      "generated_briefs": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "story_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "headline",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "content",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "version",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "1"
+          },
+          {
+            "name": "generation_mode",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_ids",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'[]'"
+          },
+          {
+            "name": "template_id",
+            "type": "INTEGER",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "prompt_version",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'1.0'"
+          },
+          {
+            "name": "llm_model",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "created_by",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "created_by",
+            "to": "id",
+            "table": "users"
+          },
+          {
+            "from": "template_id",
+            "to": "id",
+            "table": "templates"
+          },
+          {
+            "from": "story_id",
+            "to": "id",
+            "table": "stories"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "briefs_created_idx",
+            "unique": 0
+          },
+          {
+            "name": "briefs_story_idx",
+            "unique": 0
+          }
+        ]
+      },
+      "graph_clusters": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "name",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "description",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "''"
+          },
+          {
+            "name": "evidence_ids",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'[]'"
+          },
+          {
+            "name": "entity_ids",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'[]'"
+          },
+          {
+            "name": "density",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0"
+          },
+          {
+            "name": "status",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'new'"
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          },
+          {
+            "name": "updated_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          },
+          {
+            "name": "evidence_count",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "0"
+          },
+          {
+            "name": "entity_count",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "0"
+          }
+        ],
+        "foreignKeys": [],
+        "indexes": [
+          {
+            "name": "cluster_status_idx",
+            "unique": 0
+          }
+        ]
+      },
+      "jobs": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "status",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'queued'"
+          },
+          {
+            "name": "current_stage",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "''"
+          },
+          {
+            "name": "progress",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "0"
+          },
+          {
+            "name": "stages",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'[]'"
+          },
+          {
+            "name": "result",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "error",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          },
+          {
+            "name": "updated_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [],
+        "indexes": [
+          {
+            "name": "jobs_created_idx",
+            "unique": 0
+          },
+          {
+            "name": "jobs_status_idx",
+            "unique": 0
+          },
+          {
+            "name": "sqlite_autoindex_jobs_1",
+            "unique": 1
+          }
+        ]
+      },
+      "narrative_checks": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "narrative_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_link_count",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "0"
+          },
+          {
+            "name": "entity_overlap_score",
+            "type": "REAL",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "text_quality_score",
+            "type": "REAL",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "fact_support_ratio",
+            "type": "REAL",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "overall_score",
+            "type": "REAL",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "issues",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "status",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'pending'"
+          },
+          {
+            "name": "checked_at",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          }
+        ],
+        "foreignKeys": [],
+        "indexes": []
+      },
+      "narratives": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "title",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "overview",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "cluster_ids",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'[]'"
+          },
+          {
+            "name": "evidence_ids",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'[]'"
+          },
+          {
+            "name": "confidence",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0.5"
+          },
+          {
+            "name": "generation_type",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'auto'"
+          },
+          {
+            "name": "created_by",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          },
+          {
+            "name": "status",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'draft'"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "created_by",
+            "to": "id",
+            "table": "users"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "narratives_type_idx",
+            "unique": 0
+          },
+          {
+            "name": "narratives_confidence_idx",
+            "unique": 0
+          }
+        ]
+      },
+      "notifications": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "user_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "type",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "title",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "message",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "related_object_type",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "related_object_id",
+            "type": "INTEGER",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "is_read",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "false"
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "user_id",
+            "to": "id",
+            "table": "users"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "notif_read_idx",
+            "unique": 0
+          },
+          {
+            "name": "notif_user_idx",
+            "unique": 0
+          }
+        ]
+      },
+      "outcomes": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "name",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "normalized_name",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "description",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "metric",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [],
+        "indexes": []
+      },
+      "problems": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "name",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "normalized_name",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "description",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "severity",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [],
+        "indexes": []
+      },
+      "programs": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "name",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "normalized_name",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "description",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "type",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [],
+        "indexes": []
+      },
+      "relationships": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "source_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "target_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "type",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "confidence",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0.5"
+          },
+          {
+            "name": "evidence_ids",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'[]'"
+          },
+          {
+            "name": "created_by",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "created_by",
+            "to": "id",
+            "table": "users"
+          },
+          {
+            "from": "target_id",
+            "to": "id",
+            "table": "entities"
+          },
+          {
+            "from": "source_id",
+            "to": "id",
+            "table": "entities"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "rel_type_idx",
+            "unique": 0
+          },
+          {
+            "name": "rel_target_idx",
+            "unique": 0
+          },
+          {
+            "name": "rel_source_idx",
+            "unique": 0
+          }
+        ]
+      },
+      "research_tasks": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "objective",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "priority",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'medium'"
+          },
+          {
+            "name": "owner_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "deadline",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "status",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'open'"
+          },
+          {
+            "name": "completion_notes",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_by",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "created_by",
+            "to": "id",
+            "table": "users"
+          },
+          {
+            "from": "owner_id",
+            "to": "id",
+            "table": "users"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "tasks_priority_idx",
+            "unique": 0
+          },
+          {
+            "name": "tasks_status_idx",
+            "unique": 0
+          },
+          {
+            "name": "tasks_owner_idx",
+            "unique": 0
+          }
+        ]
+      },
+      "settings": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "key",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "value",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "updated_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [],
+        "indexes": [
+          {
+            "name": "settings_key_unique",
+            "unique": 1
+          }
+        ]
+      },
+      "sqlite_sequence": {
+        "columns": [
+          {
+            "name": "name",
+            "type": "",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "seq",
+            "type": "",
+            "notNull": false,
+            "dflt": null
+          }
+        ],
+        "foreignKeys": [],
+        "indexes": []
+      },
+      "stories": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "title",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "overview",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "status",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'active'"
+          },
+          {
+            "name": "created_by",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          },
+          {
+            "name": "updated_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          },
+          {
+            "name": "cluster_ids",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'[]'"
+          },
+          {
+            "name": "generation_type",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'auto'"
+          },
+          {
+            "name": "confidence",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0.5"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "created_by",
+            "to": "id",
+            "table": "users"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "stories_created_by_idx",
+            "unique": 0
+          },
+          {
+            "name": "stories_status_idx",
+            "unique": 0
+          }
+        ]
+      },
+      "story_candidate_evidence": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "story_candidate_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "role",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'member'"
+          },
+          {
+            "name": "attachment_reason",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "evidence_id",
+            "to": "id",
+            "table": "evidence"
+          },
+          {
+            "from": "story_candidate_id",
+            "to": "id",
+            "table": "story_candidates"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "sce_unique_idx",
+            "unique": 1
+          }
+        ]
+      },
+      "story_candidates": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "name",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'Untitled Candidate'"
+          },
+          {
+            "name": "description",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "''"
+          },
+          {
+            "name": "evidence_ids",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'[]'"
+          },
+          {
+            "name": "seed_type",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'program_cluster'"
+          },
+          {
+            "name": "coherence_overall",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0"
+          },
+          {
+            "name": "coherence_program_identity",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0"
+          },
+          {
+            "name": "coherence_problem_consistency",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0"
+          },
+          {
+            "name": "coherence_geographic",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0"
+          },
+          {
+            "name": "coherence_temporal",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0"
+          },
+          {
+            "name": "coherence_density",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0"
+          },
+          {
+            "name": "coherence_score",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0"
+          },
+          {
+            "name": "confidence",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0.5"
+          },
+          {
+            "name": "dominant_program_id",
+            "type": "INTEGER",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "dominant_problem_id",
+            "type": "INTEGER",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "dominant_theme",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "causal_chain",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'[]'"
+          },
+          {
+            "name": "relationship_counts",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'{\"strong\":0,\"medium\":0,\"weak\":0,\"total\":0}'"
+          },
+          {
+            "name": "diagnostics",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "reasons",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'[]'"
+          },
+          {
+            "name": "is_valid",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "false"
+          },
+          {
+            "name": "rejection_reason",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "provenance_edges",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'[]'"
+          },
+          {
+            "name": "status",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'pending'"
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          },
+          {
+            "name": "updated_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [],
+        "indexes": [
+          {
+            "name": "candidate_coherence_idx",
+            "unique": 0
+          },
+          {
+            "name": "candidate_status_idx",
+            "unique": 0
+          }
+        ]
+      },
+      "story_evidence": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "story_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "confidence",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0.5"
+          },
+          {
+            "name": "relationship_type",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'related'"
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "evidence_id",
+            "to": "id",
+            "table": "evidence"
+          },
+          {
+            "from": "story_id",
+            "to": "id",
+            "table": "stories"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "story_evidence_evidence_idx",
+            "unique": 0
+          },
+          {
+            "name": "story_evidence_story_idx",
+            "unique": 0
+          },
+          {
+            "name": "story_evidence_unique_idx",
+            "unique": 1
+          }
+        ]
+      },
+      "story_graph_edges": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_id_a",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_id_b",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "relationship_type",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "weight",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0"
+          },
+          {
+            "name": "confidence",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0.5"
+          },
+          {
+            "name": "explicit",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "true"
+          },
+          {
+            "name": "explanation",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "''"
+          },
+          {
+            "name": "source_evidence",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "''"
+          },
+          {
+            "name": "inferred",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "false"
+          },
+          {
+            "name": "inference_chain",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'[]'"
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "evidence_id_b",
+            "to": "id",
+            "table": "evidence"
+          },
+          {
+            "from": "evidence_id_a",
+            "to": "id",
+            "table": "evidence"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "story_edge_weight_idx",
+            "unique": 0
+          },
+          {
+            "name": "story_edge_type_idx",
+            "unique": 0
+          },
+          {
+            "name": "story_edge_b_idx",
+            "unique": 0
+          },
+          {
+            "name": "story_edge_a_idx",
+            "unique": 0
+          },
+          {
+            "name": "story_edge_unique_idx",
+            "unique": 1
+          }
+        ]
+      },
+      "story_relationships": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "source_evidence_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "target_evidence_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "relationship_type",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "weight",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0"
+          },
+          {
+            "name": "confidence",
+            "type": "REAL",
+            "notNull": true,
+            "dflt": "0.5"
+          },
+          {
+            "name": "explicit",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "true"
+          },
+          {
+            "name": "reason",
+            "type": "TEXT",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "target_evidence_id",
+            "to": "id",
+            "table": "evidence"
+          },
+          {
+            "from": "source_evidence_id",
+            "to": "id",
+            "table": "evidence"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "story_rel_target_idx",
+            "unique": 0
+          },
+          {
+            "name": "story_rel_source_idx",
+            "unique": 0
+          },
+          {
+            "name": "story_rel_unique_idx",
+            "unique": 1
+          }
+        ]
+      },
+      "task_entities": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "task_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "entity_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "entity_id",
+            "to": "id",
+            "table": "entities"
+          },
+          {
+            "from": "task_id",
+            "to": "id",
+            "table": "research_tasks"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "task_entity_unique_idx",
+            "unique": 1
+          }
+        ]
+      },
+      "task_evidence": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "task_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "evidence_id",
+            "to": "id",
+            "table": "evidence"
+          },
+          {
+            "from": "task_id",
+            "to": "id",
+            "table": "research_tasks"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "task_evidence_unique_idx",
+            "unique": 1
+          }
+        ]
+      },
+      "templates": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "name",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "type",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "config",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "created_by",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "created_by",
+            "to": "id",
+            "table": "users"
+          }
+        ],
+        "indexes": []
+      },
+      "timeline_events": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "date",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "title",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "description",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "evidence_id",
+            "type": "INTEGER",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "story_id",
+            "type": "INTEGER",
+            "notNull": false,
+            "dflt": null
+          },
+          {
+            "name": "entity_ids",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'[]'"
+          },
+          {
+            "name": "created_by",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "from": "created_by",
+            "to": "id",
+            "table": "users"
+          },
+          {
+            "from": "story_id",
+            "to": "id",
+            "table": "stories"
+          },
+          {
+            "from": "evidence_id",
+            "to": "id",
+            "table": "evidence"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "timeline_evidence_idx",
+            "unique": 0
+          },
+          {
+            "name": "timeline_story_idx",
+            "unique": 0
+          },
+          {
+            "name": "timeline_date_idx",
+            "unique": 0
+          }
+        ]
+      },
+      "users": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "email",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "name",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "password_hash",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": null
+          },
+          {
+            "name": "role",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "'analyst'"
+          },
+          {
+            "name": "is_blocked",
+            "type": "INTEGER",
+            "notNull": true,
+            "dflt": "false"
+          },
+          {
+            "name": "created_at",
+            "type": "TEXT",
+            "notNull": true,
+            "dflt": "datetime('now')"
+          }
+        ],
+        "foreignKeys": [],
+        "indexes": [
+          {
+            "name": "users_email_unique",
+            "unique": 1
+          }
+        ]
+      }
+    },
+    "detectedVersion": "hybrid-v3-v4"
+  },
+  "pipelineArchitecture": {
+    "worker": {
+      "exists": true,
+      "path": "lib/worker.ts",
+      "functions": [
+        "enqueueEvidenceJob",
+        "processEvidenceJob",
+        "updateStage",
+        "storeFacts",
+        "storeEntities",
+        "createRelationshipsFromFacts",
+        "storeTimelineEvents",
+        "storeIntelligenceNodes",
+        "storeSingleDocumentAssessment",
+        "rebuildStoryGraph",
+        "buildSimpleStoryGraph",
+        "generateClusterName",
+        "generateClusterOverview",
+        "loadIntelligenceMap",
+        "loadSingleDocAssessments",
+        "buildQualityProfiles",
+        "buildEvidenceContexts",
+        "generateNarrativesForValidatedStories",
+        "runDiscoveryPipeline",
+        "triggerFullCorpusRebuild"
+      ],
+      "inserts": [
+        "facts",
+        "entities",
+        "evidenceEntities",
+        "relationships",
+        "timelineEvents",
+        "programs",
+        "evidencePrograms",
+        "events",
+        "evidenceEvents",
+        "problems",
+        "evidenceProblems",
+        "outcomes",
+        "evidenceOutcomes",
+        "actors",
+        "evidenceActors",
+        "evidenceStoryAssessment",
+        "storyRelationships",
+        "evidenceConnections",
+        "storyGraphEdges",
+        "storyCandidates",
+        "storyCandidateEvidence",
+        "stories",
+        "storyEvidence",
+        "narratives"
+      ],
+      "selects": [
+        "evidence",
+        "entities",
+        "facts",
+        "relationships",
+        "programs",
+        "events",
+        "problems",
+        "outcomes",
+        "actors",
+        "evidenceStoryAssessment",
+        "evidencePrograms",
+        "evidenceProblems",
+        "evidenceEntities",
+        "storyCandidates",
+        "stories",
+        "evidenceEvents",
+        "evidenceOutcomes",
+        "evidenceActors",
+        "narratives",
+        "storyCandidateEvidence"
+      ]
+    },
+    "extraction": {
+      "exists": true,
+      "path": "lib/ai/extraction.ts",
+      "functions": [
+        "buildV3Prompt",
+        "buildV4Prompt",
+        "safeParseJSON",
+        "validateV3",
+        "validateV4",
+        "extractStructuredFacts",
+        "emptyResult",
+        "extractFacts"
+      ],
+      "inserts": [],
+      "selects": []
+    },
+    "graphSignals": {
+      "exists": true,
+      "path": "lib/graph/signals.ts",
+      "functions": [
+        "computeSignals",
+        "computeSignalsForEvidence",
+        "computePairSignals",
+        "loadFactsByEvidence",
+        "loadEventsByEvidence",
+        "pairKey",
+        "intersect",
+        "entityNamesByType",
+        "legislationFromFacts",
+        "causalFacts",
+        "economicFacts",
+        "joinNames",
+        "parseDate"
+      ],
+      "inserts": [],
+      "selects": [
+        "graph.evidenceNodes.keys(",
+        "aSubjects",
+        "bSubjects",
+        "facts",
+        "timelineEvents"
+      ]
+    },
+    "graphCluster": {
+      "exists": true,
+      "path": "lib/graph/cluster.ts",
+      "functions": [
+        "findClusters",
+        "computeDensity",
+        "collectUniqueEntityIds",
+        "getDominantSignals",
+        "buildClusterDescription"
+      ],
+      "inserts": [],
+      "selects": [
+        "graph.evidenceNodes.keys(",
+        "set",
+        "signalCounts.entries("
+      ]
+    },
+    "graphBuilder": {
+      "exists": true,
+      "path": "lib/graph/builder.ts",
+      "functions": [
+        "buildGraph",
+        "getGraphStats",
+        "getEntityNeighbors",
+        "getEvidenceNeighbors",
+        "safeParseJson"
+      ],
+      "inserts": [],
+      "selects": [
+        "evidence",
+        "entities",
+        "evidenceEntities",
+        "timelineEvents",
+        "facts",
+        "neighbors"
+      ]
+    },
+    "storyPipeline": {
+      "exists": true,
+      "path": "lib/graph/story-pipeline.ts",
+      "functions": [
+        "runStoryPipeline"
+      ],
+      "inserts": [],
+      "selects": []
+    },
+    "storyGraph": {
+      "exists": true,
+      "path": "lib/graph/story-graph.ts",
+      "functions": [
+        "buildStoryGraph",
+        "getNeighborsInStoryGraph"
+      ],
+      "inserts": [],
+      "selects": []
+    },
+    "storyCluster": {
+      "exists": true,
+      "path": "lib/graph/story-cluster.ts",
+      "functions": [
+        "detectStorySeeds",
+        "detectProgramSeeds",
+        "detectCausalChainSeeds",
+        "detectProblemInterventionOutcomeSeeds",
+        "detectEventInterventionOutcomeSeeds",
+        "detectDenseClusterSeeds",
+        "expandStorySeeds",
+        "expandSingleSeed",
+        "detectSingleDocumentStories",
+        "mergeOverlappingCandidates",
+        "computeCandidateScores",
+        "computeSeedStrength",
+        "buildAdjacencyList",
+        "findConnectedComponents",
+        "countInternalEdges",
+        "findDominant",
+        "deduplicateSeeds",
+        "mergeOverlappingSeeds",
+        "inferTheme",
+        "buildStoryCandidate",
+        "runStoryClustering"
+      ],
+      "inserts": [],
+      "selects": [
+        "evidenceSet",
+        "contextSet",
+        "memberSet",
+        "seedSet",
+        "union",
+        "new Set([...current.seedEvidenceIds, ...other.seedEvidenceIds]",
+        "new Set([...current.contextEvidenceIds, ...other.contextEvidenceIds]"
+      ]
+    },
+    "storySeeds": {
+      "exists": true,
+      "path": "lib/graph/story-seeds.ts",
+      "functions": [
+        "detectStorySeeds"
+      ],
+      "inserts": [],
+      "selects": []
+    },
+    "storyEdges": {
+      "exists": true,
+      "path": "lib/graph/story-edges.ts",
+      "functions": [
+        "buildSuppressionMap",
+        "detectGenericInstitutionalPage",
+        "buildContextGraph",
+        "buildStoryGraph",
+        "generateEdgeExplanations",
+        "explainRejection",
+        "preventHubFormation",
+        "buildGraphLayers",
+        "defaultQualityProfile"
+      ],
+      "inserts": [],
+      "selects": [
+        "connectedEvidenceIds"
+      ]
+    },
+    "storyExpansion": {
+      "exists": true,
+      "path": "lib/graph/story-expansion.ts",
+      "functions": [
+        "canExpandInto",
+        "expandStory"
+      ],
+      "inserts": [],
+      "selects": [
+        "state.hopCounts.entries(",
+        "expandedIds"
+      ]
+    },
+    "storyCoherence": {
+      "exists": true,
+      "path": "lib/graph/story-coherence.ts",
+      "functions": [
+        "computeStoryCoherence",
+        "scoreProgramIdentity",
+        "scoreCausalContinuity",
+        "scoreProblemConsistency",
+        "scoreEventContinuity",
+        "scoreOutcomeConsistency",
+        "scoreTemporalCoherence",
+        "scoreEvidenceDensity",
+        "computeGenericLocationPenalty",
+        "computeGenericActorPenalty",
+        "computeUnrelatedSectorPenalty",
+        "computeContradictoryProgramPenalty",
+        "extractCausalChain",
+        "computeStoryConfidence",
+        "validateStoryCandidates",
+        "parseLooseDate",
+        "inferDominantTheme",
+        "buildStoryDiagnosticView"
+      ],
+      "inserts": [],
+      "selects": []
+    },
+    "scoring": {
+      "exists": true,
+      "path": "lib/graph/scoring.ts",
+      "functions": [
+        "computeEvidenceQuality",
+        "computePairEvidenceQuality",
+        "computeExplicitnessFactor",
+        "returns",
+        "computeSuppressionPenalty",
+        "scoreRelationship",
+        "aggregateRelationships",
+        "passesStoryThreshold",
+        "edgePassesStoryThreshold",
+        "filterStoryEdges",
+        "explainRelationshipScore",
+        "scoreRelationshipBatch",
+        "defaultQualityProfile",
+        "defaultSuppressionInput"
+      ],
+      "inserts": [],
+      "selects": []
+    },
+    "narrative": {
+      "exists": true,
+      "path": "lib/graph/narrative.ts",
+      "functions": [
+        "detectNarratives",
+        "generateNarrativeTitle",
+        "generateNarrativeOverview",
+        "analyzeConfidenceTrend",
+        "analyzeNewEntityIntroductions",
+        "analyzeGeographicExpansion",
+        "analyzeTemporalAcceleration",
+        "analyzeNarrativeDrift",
+        "parseDate",
+        "formatDate",
+        "average"
+      ],
+      "inserts": [],
+      "selects": []
+    },
+    "aiStories": {
+      "exists": true,
+      "path": "lib/ai/stories.ts",
+      "functions": [
+        "proposeStoryFromEvidence",
+        "generateBriefContent",
+        "generateNarrativeFromCluster",
+        "summarizeSignals"
+      ],
+      "inserts": [],
+      "selects": [
+        "byType.entries("
+      ]
+    },
+    "reasoningDiscovery": {
+      "exists": true,
+      "path": "lib/reasoning/story-discovery.ts",
+      "functions": [
+        "runStoryDiscoveryPipeline",
+        "persistStoryDiscovery",
+        "persistStoryRelationships",
+        "persistStoryCandidates",
+        "persistGraphClusters",
+        "evidenceIntelligenceToInput"
+      ],
+      "inserts": [
+        "storyRelationships",
+        "storyCandidates",
+        "storyCandidateEvidence",
+        "graphClusters"
+      ],
+      "selects": [
+        "storyCandidates",
+        "graphClusters"
+      ]
+    },
+    "apiDiscover": {
+      "exists": true,
+      "path": "app/api/discover/route.ts",
+      "functions": [
+        "GET",
+        "POST",
+        "PUT",
+        "fetchLatestDiscoveryState",
+        "buildClusterViews"
+      ],
+      "inserts": [
+        "stories",
+        "storyEvidence"
+      ],
+      "selects": [
+        "evidence",
+        "storyCandidates",
+        "narratives",
+        "graphClusters",
+        "storyCandidateEvidence"
+      ]
+    },
+    "apiGraph": {
+      "exists": true,
+      "path": "app/api/graph/route.ts",
+      "functions": [
+        "GET",
+        "safeParseJson"
+      ],
+      "inserts": [],
+      "selects": [
+        "evidence",
+        "storyRelationships",
+        "storyEvidenceIds",
+        "graphClusters",
+        "storyCandidates",
+        "storyCandidateEvidence",
+        "narratives",
+        "entities"
+      ]
+    },
+    "apiStories": {
+      "exists": true,
+      "path": "app/api/stories/route.ts",
+      "functions": [
+        "GET",
+        "safeParseJson"
+      ],
+      "inserts": [],
+      "selects": [
+        "stories",
+        "narratives",
+        "storyEvidence"
+      ]
+    },
+    "apiTimeline": {
+      "exists": true,
+      "path": "app/api/timeline/route.ts",
+      "functions": [
+        "GET",
+        "POST"
+      ],
+      "inserts": [
+        "timelineEvents"
+      ],
+      "selects": [
+        "timelineEvents"
+      ]
+    },
+    "detectedPipelines": [
+      {
+        "name": "v3_graph_clusters",
+        "file": "lib/graph/cluster.ts",
+        "output": "graph_clusters"
+      },
+      {
+        "name": "v4_story_cluster",
+        "file": "lib/graph/story-cluster.ts",
+        "output": "story_candidates"
+      },
+      {
+        "name": "v4_story_pipeline",
+        "file": "lib/graph/story-pipeline.ts",
+        "output": "story_candidates"
+      },
+      {
+        "name": "v4_reasoning_discovery",
+        "file": "lib/reasoning/story-discovery.ts",
+        "output": "stories"
+      }
+    ]
+  },
+  "stageHealth": {
+    "ingestion": {
+      "input": "Upload",
+      "expected": 5,
+      "actual": 5,
+      "status": "PASS"
+    },
+    "extraction_entities": {
+      "input": 5,
+      "expected": ">0",
+      "actual": 78,
+      "status": "PASS"
+    },
+    "extraction_facts": {
+      "input": 5,
+      "expected": ">0",
+      "actual": 104,
+      "status": "PASS"
+    },
+    "entity_linking": {
+      "input": 78,
+      "expected": 78,
+      "actual": 94,
+      "status": "PASS"
+    },
+    "fact_to_entity_resolution": {
+      "input": 104,
+      "expected": "TBD",
+      "actual": "TBD",
+      "status": "INSPECTED_BELOW"
+    },
+    "entity_relationships": {
+      "input": 104,
+      "expected": ">0",
+      "actual": 3,
+      "status": "PASS"
+    },
+    "evidence_connections": {
+      "input": 5,
+      "expected": ">0",
+      "actual": 0,
+      "status": "FAIL"
+    },
+    "story_graph_edges": {
+      "input": 5,
+      "expected": ">0",
+      "actual": 0,
+      "status": "FAIL"
+    },
+    "context_graph_edges": {
+      "input": 5,
+      "expected": ">0",
+      "actual": 0,
+      "status": "FAIL"
+    },
+    "story_relationships": {
+      "input": 5,
+      "expected": ">0",
+      "actual": 42,
+      "status": "PASS"
+    },
+    "v3_clustering": {
+      "input": 5,
+      "expected": ">0",
+      "actual": 7,
+      "status": "PASS"
+    },
+    "v4_candidates": {
+      "input": 5,
+      "expected": ">0",
+      "actual": 7,
+      "status": "PASS"
+    },
+    "candidate_evidence_links": {
+      "input": 7,
+      "expected": ">0",
+      "actual": 16,
+      "status": "PASS"
+    },
+    "stories": {
+      "input": 7,
+      "expected": ">0",
+      "actual": 0,
+      "status": "FAIL"
+    },
+    "story_evidence_links": {
+      "input": 0,
+      "expected": 0,
+      "actual": 0,
+      "status": "N/A"
+    },
+    "narratives": {
+      "input": 0,
+      "expected": 0,
+      "actual": 0,
+      "status": "N/A"
+    },
+    "timeline": {
+      "input": 5,
+      "expected": ">0",
+      "actual": 7,
+      "status": "PASS"
+    }
+  },
+  "entityResolution": {},
+  "factResolution": {
+    "summary": {
+      "total": 104,
+      "resolvedBoth": 3,
+      "subjectOnly": 31,
+      "objectOnly": 3,
+      "neither": 67,
+      "noMatchRequired": 0,
+      "potentialRelationships": 3
+    },
+    "sampleResolutions": [
+      {
+        "factId": 342,
+        "subject": "African Development Bank Group",
+        "subjectResolution": {
+          "id": 855,
+          "name": "African Development Bank Group",
+          "matchType": "exact"
+        },
+        "object": "$75 million",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "approved loan amount"
+      },
+      {
+        "factId": 343,
+        "subject": "African Development Fund",
+        "subjectResolution": {
+          "id": 856,
+          "name": "African Development Fund",
+          "matchType": "exact"
+        },
+        "object": "$50 million",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "provides sovereign loan amount"
+      },
+      {
+        "factId": 344,
+        "subject": "Nigeria Trust Fund",
+        "subjectResolution": {
+          "id": 857,
+          "name": "Nigeria Trust Fund",
+          "matchType": "exact"
+        },
+        "object": "$25 million",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "provides loan amount"
+      },
+      {
+        "factId": 345,
+        "subject": "Government of Zambia",
+        "subjectResolution": {
+          "id": 858,
+          "name": "Government of Zambia",
+          "matchType": "exact"
+        },
+        "object": "$5 million",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "contributes counterpart funding amount"
+      },
+      {
+        "factId": 346,
+        "subject": "REAP",
+        "subjectResolution": null,
+        "object": "approximately 10,000 solar home systems",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "will support installation of"
+      },
+      {
+        "factId": 347,
+        "subject": "REAP",
+        "subjectResolution": null,
+        "object": "150 mini‑grids",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "will support installation of"
+      },
+      {
+        "factId": 348,
+        "subject": "REAP",
+        "subjectResolution": null,
+        "object": "200,000 households across Eastern, Muchinga, and Northern provinces",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "will extend grid to"
+      },
+      {
+        "factId": 349,
+        "subject": "REAP",
+        "subjectResolution": null,
+        "object": "over one million people",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "expected to benefit"
+      },
+      {
+        "factId": 350,
+        "subject": "REAP",
+        "subjectResolution": null,
+        "object": "women‑headed households and small‑scale entrepreneurs",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "focuses on"
+      },
+      {
+        "factId": 351,
+        "subject": "Dr. Kevin Kariuki",
+        "subjectResolution": {
+          "id": 860,
+          "name": "Dr. Kevin Kariuki",
+          "matchType": "exact"
+        },
+        "object": "access to reliable energy is a cornerstone of economic transformation",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "said"
+      },
+      {
+        "factId": 352,
+        "subject": "REAP",
+        "subjectResolution": null,
+        "object": "Zambia's National Energy Policy",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "aligns with"
+      },
+      {
+        "factId": 353,
+        "subject": "REAP",
+        "subjectResolution": null,
+        "object": "High 5s priority on Light Up and Power Africa",
+        "objectResolution": {
+          "id": 868,
+          "name": "High 5s priority on Light Up and Power Africa",
+          "matchType": "exact"
+        },
+        "status": "OBJECT_ONLY",
+        "predicate": "aligns with"
+      },
+      {
+        "factId": 354,
+        "subject": "REAP",
+        "subjectResolution": null,
+        "object": "Rural Electrification Authority (REA) and ZESCO Limited",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "includes capacity‑building component for"
+      },
+      {
+        "factId": 355,
+        "subject": "Technical assistance",
+        "subjectResolution": null,
+        "object": "regulatory frameworks for decentralized renewable energy systems",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "will strengthen"
+      },
+      {
+        "factId": 356,
+        "subject": "Technical assistance",
+        "subjectResolution": null,
+        "object": "geospatial electrification planning platform",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "will establish"
+      },
+      {
+        "factId": 357,
+        "subject": "REAP",
+        "subjectResolution": null,
+        "object": "environmental and social safeguards",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "integrated"
+      },
+      {
+        "factId": 358,
+        "subject": "ERM Southern Africa",
+        "subjectResolution": {
+          "id": 863,
+          "name": "ERM Southern Africa",
+          "matchType": "exact"
+        },
+        "object": "Environmental and Social Impact Assessment (ESIA)",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "conducted"
+      },
+      {
+        "factId": 359,
+        "subject": "ESIA",
+        "subjectResolution": null,
+        "object": "agricultural land use, water resources, and cultural heritage sites",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "identified impacts on"
+      },
+      {
+        "factId": 360,
+        "subject": "REAP",
+        "subjectResolution": null,
+        "object": "December 2028",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "scheduled for completion by"
+      },
+      {
+        "factId": 361,
+        "subject": "Disbursement",
+        "subjectResolution": null,
+        "object": "performance indicators (connections, gender‑disaggregated beneficiary data, mini‑grid uptime)",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "tied to"
+      },
+      {
+        "factId": 362,
+        "subject": "Southern Africa",
+        "subjectResolution": {
+          "id": 870,
+          "name": "Southern Africa",
+          "matchType": "exact"
+        },
+        "object": "2.4 percent",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "projected economic growth in 2026"
+      },
+      {
+        "factId": 363,
+        "subject": "Southern Africa",
+        "subjectResolution": {
+          "id": 870,
+          "name": "Southern Africa",
+          "matchType": "exact"
+        },
+        "object": "2.1 percent",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "projected economic growth in 2025"
+      },
+      {
+        "factId": 364,
+        "subject": "Sub‑Saharan Africa",
+        "subjectResolution": {
+          "id": 888,
+          "name": "Sub‑Saharan Africa",
+          "matchType": "exact"
+        },
+        "object": "3.8 percent",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "average economic growth"
+      },
+      {
+        "factId": 365,
+        "subject": "Zambia",
+        "subjectResolution": {
+          "id": 867,
+          "name": "Zambia",
+          "matchType": "exact"
+        },
+        "object": "2.8 percent",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "forecast growth for 2026"
+      },
+      {
+        "factId": 366,
+        "subject": "Zimbabwe",
+        "subjectResolution": {
+          "id": 871,
+          "name": "Zimbabwe",
+          "matchType": "exact"
+        },
+        "object": "contract by 1.2 percent",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "forecast economic change for 2026"
+      },
+      {
+        "factId": 367,
+        "subject": "Drought in Zimbabwe",
+        "subjectResolution": null,
+        "object": "over 60 percent of maize crop",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "destroyed"
+      },
+      {
+        "factId": 368,
+        "subject": "Drought in Zimbabwe",
+        "subjectResolution": null,
+        "object": "hydroelectric generation at Kariba Dam",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "crippled"
+      },
+      {
+        "factId": 369,
+        "subject": "Zimbabwe industrial output",
+        "subjectResolution": null,
+        "object": "18 percent",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "fell year‑on‑year"
+      },
+      {
+        "factId": 370,
+        "subject": "Zimbabwe manufacturing sector",
+        "subjectResolution": null,
+        "object": "approximately 45 percent",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "operating capacity"
+      },
+      {
+        "factId": 371,
+        "subject": "Load shedding in Lusaka and Copperbelt",
+        "subjectResolution": null,
+        "object": "8 hours per day in Q1 2026",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "average duration"
+      },
+      {
+        "factId": 372,
+        "subject": "SAPP Interconnector Project",
+        "subjectResolution": {
+          "id": 882,
+          "name": "SAPP Interconnector Project",
+          "matchType": "exact"
+        },
+        "object": "$200 million",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "approved financing"
+      },
+      {
+        "factId": 373,
+        "subject": "SAPP trading volumes",
+        "subjectResolution": null,
+        "object": "4,200 GWh in 2025",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "reached"
+      },
+      {
+        "factId": 374,
+        "subject": "SAPP trading volumes",
+        "subjectResolution": null,
+        "object": "15 percent",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "increase from previous year"
+      },
+      {
+        "factId": 375,
+        "subject": "SAPP trading volumes",
+        "subjectResolution": null,
+        "object": "less than 5 percent",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "share of total regional generation capacity"
+      },
+      {
+        "factId": 376,
+        "subject": "Public debt‑to‑GDP ratio (regional average)",
+        "subjectResolution": null,
+        "object": "72 percent",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "value"
+      },
+      {
+        "factId": 377,
+        "subject": "Mozambique debt‑to‑GDP",
+        "subjectResolution": null,
+        "object": "102 percent",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "value"
+      },
+      {
+        "factId": 378,
+        "subject": "Zambia debt‑to‑GDP",
+        "subjectResolution": null,
+        "object": "97 percent",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "value"
+      },
+      {
+        "factId": 379,
+        "subject": "Zimbabwe debt‑to‑GDP",
+        "subjectResolution": null,
+        "object": "92 percent",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "value"
+      },
+      {
+        "factId": 380,
+        "subject": "Africa Climate Change Fund",
+        "subjectResolution": {
+          "id": 884,
+          "name": "Africa Climate Change Fund",
+          "matchType": "exact"
+        },
+        "object": "$340 million to drought resilience programs in Malawi, Zambia, and Zimbabwe",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "committed funding"
+      },
+      {
+        "factId": 381,
+        "subject": "Climate adaptation financing gap",
+        "subjectResolution": null,
+        "object": "$12 billion",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "estimated annual shortfall through 2030"
+      },
+      {
+        "factId": 382,
+        "subject": "Beira corridor",
+        "subjectResolution": {
+          "id": 886,
+          "name": "Beira corridor",
+          "matchType": "exact"
+        },
+        "object": "over 70 percent of Zambia's imports",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "handles"
+      },
+      {
+        "factId": 383,
+        "subject": "Dar es Salaam corridor",
+        "subjectResolution": {
+          "id": 887,
+          "name": "Dar es Salaam corridor",
+          "matchType": "exact"
+        },
+        "object": "over 70 percent of Zambia's imports",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "handles"
+      },
+      {
+        "factId": 384,
+        "subject": "Rural Electrification Authority (REA)",
+        "subjectResolution": {
+          "id": 861,
+          "name": "Rural Electrification Authority (REA)",
+          "matchType": "exact"
+        },
+        "object": "Government of the Republic of Zambia",
+        "objectResolution": {
+          "id": 889,
+          "name": "Government of the Republic of Zambia",
+          "matchType": "exact"
+        },
+        "status": "RESOLVED_BOTH",
+        "predicate": "acts on behalf of"
+      },
+      {
+        "factId": 385,
+        "subject": "Rural Electrification Authority (REA)",
+        "subjectResolution": {
+          "id": 861,
+          "name": "Rural Electrification Authority (REA)",
+          "matchType": "exact"
+        },
+        "object": "eligible consulting firms",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "invites"
+      },
+      {
+        "factId": 386,
+        "subject": "Zambia Renewable Energy Access Project (REAP)",
+        "subjectResolution": {
+          "id": 859,
+          "name": "Zambia Renewable Energy Access Project (REAP)",
+          "matchType": "exact"
+        },
+        "object": "African Development Bank (AfDB)",
+        "objectResolution": {
+          "id": 890,
+          "name": "African Development Bank (AfDB)",
+          "matchType": "exact"
+        },
+        "status": "RESOLVED_BOTH",
+        "predicate": "financed by"
+      },
+      {
+        "factId": 387,
+        "subject": "Zambia Renewable Energy Access Project (REAP)",
+        "subjectResolution": {
+          "id": 859,
+          "name": "Zambia Renewable Energy Access Project (REAP)",
+          "matchType": "exact"
+        },
+        "object": "$75 million",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "has total envelope"
+      },
+      {
+        "factId": 388,
+        "subject": "Zambia Renewable Energy Access Project (REAP)",
+        "subjectResolution": {
+          "id": 859,
+          "name": "Zambia Renewable Energy Access Project (REAP)",
+          "matchType": "exact"
+        },
+        "object": "underserved rural and peri-urban communities in Eastern Province, Muchinga Province, Northern Province",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "targets"
+      },
+      {
+        "factId": 389,
+        "subject": "Consulting firm",
+        "subjectResolution": null,
+        "object": "comprehensive ESIA for 150 mini-grid sites, 10,000 solar home system installations, and associated transmission infrastructure",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "must conduct"
+      },
+      {
+        "factId": 390,
+        "subject": "Consulting firm",
+        "subjectResolution": null,
+        "object": "Resettlement Action Plan (RAP)",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "must develop"
+      },
+      {
+        "factId": 391,
+        "subject": "Consulting firm",
+        "subjectResolution": null,
+        "object": "Environmental and Social Management Plan (ESMP) with monitoring indicators",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "must prepare"
+      },
+      {
+        "factId": 392,
+        "subject": "Consulting firm",
+        "subjectResolution": null,
+        "object": "stakeholder engagement consultations in 12 target districts",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "must undertake"
+      },
+      {
+        "factId": 393,
+        "subject": "Consulting firm",
+        "subjectResolution": null,
+        "object": "cumulative impacts in areas with multiple mini-grid installations",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "must assess"
+      },
+      {
+        "factId": 394,
+        "subject": "Consulting firm",
+        "subjectResolution": null,
+        "object": "ESIA prepared by ERM Southern Africa in 2024",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "must review and update"
+      },
+      {
+        "factId": 395,
+        "subject": "Consulting firm",
+        "subjectResolution": null,
+        "object": "at least 10 years experience in conducting ESIAs for energy infrastructure projects in Sub-Saharan Africa",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "must have"
+      },
+      {
+        "factId": 396,
+        "subject": "Consulting firm",
+        "subjectResolution": null,
+        "object": "AfDB safeguard policies and IFC Performance Standards",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "must have prior experience with"
+      },
+      {
+        "factId": 397,
+        "subject": "Consulting firm",
+        "subjectResolution": null,
+        "object": "registered presence in Zambia or partnership agreement with a Zambian-registered firm",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "must have"
+      },
+      {
+        "factId": 398,
+        "subject": "Consulting firm",
+        "subjectResolution": null,
+        "object": "Team Leader, Environmental Specialist, Social Specialist, GIS Specialist",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "must include"
+      },
+      {
+        "factId": 399,
+        "subject": "Proposals",
+        "subjectResolution": null,
+        "object": "30 June 2024 14:00 local time",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "must be submitted by"
+      },
+      {
+        "factId": 400,
+        "subject": "Proposals",
+        "subjectResolution": null,
+        "object": "ZPPA e-GP system",
+        "objectResolution": {
+          "id": 891,
+          "name": "ZPPA e-GP system",
+          "matchType": "exact"
+        },
+        "status": "OBJECT_ONLY",
+        "predicate": "must be submitted through"
+      },
+      {
+        "factId": 401,
+        "subject": "Tender",
+        "subjectResolution": null,
+        "object": "African Development Bank's Zambia Renewable Energy Access Project (REAP)",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "financed under"
+      },
+      {
+        "factId": 402,
+        "subject": "Loan",
+        "subjectResolution": null,
+        "object": "2100150033586",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "has number"
+      },
+      {
+        "factId": 403,
+        "subject": "Procurement Officer",
+        "subjectResolution": {
+          "id": 894,
+          "name": "Procurement Officer",
+          "matchType": "exact"
+        },
+        "object": "procurement@rea.org.zm",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "has email"
+      },
+      {
+        "factId": 404,
+        "subject": "Procurement Officer",
+        "subjectResolution": {
+          "id": 894,
+          "name": "Procurement Officer",
+          "matchType": "exact"
+        },
+        "object": "Kabulonga Road, Lusaka",
+        "objectResolution": {
+          "id": 892,
+          "name": "Kabulonga Road, Lusaka",
+          "matchType": "exact"
+        },
+        "status": "RESOLVED_BOTH",
+        "predicate": "located at"
+      },
+      {
+        "factId": 405,
+        "subject": "Zimbabwe's industrial sector",
+        "subjectResolution": null,
+        "object": "18 percent output loss in the first half of 2026",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "recorded decline of"
+      },
+      {
+        "factId": 406,
+        "subject": "Manufacturing capacity utilization",
+        "subjectResolution": null,
+        "object": "45.3 percent in June 2026",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "fell to"
+      },
+      {
+        "factId": 407,
+        "subject": "Manufacturing capacity utilization",
+        "subjectResolution": null,
+        "object": "55.1 percent in June 2025",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "was"
+      },
+      {
+        "factId": 408,
+        "subject": "Kariba South Hydro Power Station",
+        "subjectResolution": {
+          "id": 906,
+          "name": "Kariba South Hydro Power Station",
+          "matchType": "exact"
+        },
+        "object": "214 MW (installed capacity 1,050 MW)",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "generated"
+      },
+      {
+        "factId": 409,
+        "subject": "Zimbabwe total generation capacity",
+        "subjectResolution": null,
+        "object": "1,400 MW",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "is"
+      },
+      {
+        "factId": 410,
+        "subject": "Zimbabwe peak demand",
+        "subjectResolution": null,
+        "object": "2,000 MW",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "is"
+      },
+      {
+        "factId": 411,
+        "subject": "Generation deficit",
+        "subjectResolution": null,
+        "object": "600 MW",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "equals"
+      },
+      {
+        "factId": 412,
+        "subject": "ZERA",
+        "subjectResolution": null,
+        "object": "25 independent power producer licenses since January 2026",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "approved"
+      },
+      {
+        "factId": 413,
+        "subject": "SAPP Interconnector Project",
+        "subjectResolution": {
+          "id": 882,
+          "name": "SAPP Interconnector Project",
+          "matchType": "exact"
+        },
+        "object": "up to 300 MW from the regional grid (operational after 2028)",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "will allow import of"
+      },
+      {
+        "factId": 414,
+        "subject": "National Renewable Energy Policy",
+        "subjectResolution": {
+          "id": 909,
+          "name": "National Renewable Energy Policy",
+          "matchType": "exact"
+        },
+        "object": "1,000 MW of solar and wind capacity by 2030",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "targets"
+      },
+      {
+        "factId": 415,
+        "subject": "Solar panel sales",
+        "subjectResolution": null,
+        "object": "340 percent year‑on‑year",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "increased by"
+      },
+      {
+        "factId": 416,
+        "subject": "Ministry of Finance",
+        "subjectResolution": {
+          "id": 913,
+          "name": "Ministry of Finance",
+          "matchType": "exact"
+        },
+        "object": "ZWL 2.3 trillion ($180 million) for emergency power imports in the 2026 supplementary budget",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "allocated"
+      },
+      {
+        "factId": 417,
+        "subject": "Load shedding",
+        "subjectResolution": null,
+        "object": "$50,000 per hour in lost production for Dangote Cement Zimbabwe",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "costs"
+      },
+      {
+        "factId": 418,
+        "subject": "ZESA",
+        "subjectResolution": {
+          "id": 904,
+          "name": "ZESA",
+          "matchType": "exact"
+        },
+        "object": "four‑day week because it cannot guarantee power for five days",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "operates on"
+      },
+      {
+        "factId": 419,
+        "subject": "Zambezi River Authority",
+        "subjectResolution": {
+          "id": 905,
+          "name": "Zambezi River Authority",
+          "matchType": "exact"
+        },
+        "object": "power generation at Kariba South",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "reduced water allocations for"
+      },
+      {
+        "factId": 420,
+        "subject": "Imports from Cahora Bassa and Eskom",
+        "subjectResolution": null,
+        "object": "Zimbabwe's electricity shortfall",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "partially offset"
+      },
+      {
+        "factId": 421,
+        "subject": "Gloria Magombo",
+        "subjectResolution": {
+          "id": 908,
+          "name": "Gloria Magombo",
+          "matchType": "exact"
+        },
+        "object": "Zimbabwe will remain in an electricity crisis for at least the next 24 months",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "said"
+      },
+      {
+        "factId": 422,
+        "subject": "African Development Bank Group's Board of Directors",
+        "subjectResolution": null,
+        "object": "$200 million loan",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "approved"
+      },
+      {
+        "factId": 423,
+        "subject": "$200 million loan",
+        "subjectResolution": null,
+        "object": "Southern African Power Pool Interconnector Project",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "finances"
+      },
+      {
+        "factId": 424,
+        "subject": "Financing",
+        "subjectResolution": null,
+        "object": "$150 million sovereign loan to Republic of Zambia",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "comprises"
+      },
+      {
+        "factId": 425,
+        "subject": "Financing",
+        "subjectResolution": null,
+        "object": "$50 million sovereign loan to Republic of Zimbabwe",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "comprises"
+      },
+      {
+        "factId": 426,
+        "subject": "Project",
+        "subjectResolution": null,
+        "object": "330 kV double‑circuit transmission line spanning 300 km from Lusaka West to Sherwood",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "will construct"
+      },
+      {
+        "factId": 427,
+        "subject": "Interconnector",
+        "subjectResolution": null,
+        "object": "200 MW to 600 MW",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "will increase capacity from"
+      },
+      {
+        "factId": 428,
+        "subject": "Interconnector",
+        "subjectResolution": null,
+        "object": "40 percent within five years of commissioning",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "could increase SAPP trading volumes by"
+      },
+      {
+        "factId": 429,
+        "subject": "Project",
+        "subjectResolution": null,
+        "object": "$15 million technical assistance component for SAPP Coordination Centre in Harare",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "includes"
+      },
+      {
+        "factId": 430,
+        "subject": "Implementation",
+        "subjectResolution": null,
+        "object": "Q1 2027",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "scheduled to begin"
+      },
+      {
+        "factId": 431,
+        "subject": "Completion",
+        "subjectResolution": null,
+        "object": "Q4 2029",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "targeted for"
+      },
+      {
+        "factId": 432,
+        "subject": "ZESCO",
+        "subjectResolution": {
+          "id": 923,
+          "name": "ZESCO",
+          "matchType": "exact"
+        },
+        "object": "Project",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "will execute"
+      },
+      {
+        "factId": 433,
+        "subject": "ZESA",
+        "subjectResolution": {
+          "id": 904,
+          "name": "ZESA",
+          "matchType": "exact"
+        },
+        "object": "Project",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "will execute"
+      },
+      {
+        "factId": 434,
+        "subject": "SAPP Coordination Centre",
+        "subjectResolution": {
+          "id": 924,
+          "name": "SAPP Coordination Centre",
+          "matchType": "exact"
+        },
+        "object": "Project",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "provides oversight for"
+      },
+      {
+        "factId": 435,
+        "subject": "SAPP coordination centre data",
+        "subjectResolution": null,
+        "object": "4,200 GWh in 2025",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "indicates regional electricity trading reached"
+      },
+      {
+        "factId": 436,
+        "subject": "Zambia",
+        "subjectResolution": {
+          "id": 867,
+          "name": "Zambia",
+          "matchType": "exact"
+        },
+        "object": "Zimbabwe and other SAPP members",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "will export surplus power to"
+      },
+      {
+        "factId": 437,
+        "subject": "Zimbabwe",
+        "subjectResolution": {
+          "id": 871,
+          "name": "Zimbabwe",
+          "matchType": "exact"
+        },
+        "object": "emergency diesel and heavy fuel oil plants",
+        "objectResolution": null,
+        "status": "SUBJECT_ONLY",
+        "predicate": "will reduce reliance on"
+      },
+      {
+        "factId": 438,
+        "subject": "Environmental and social assessments",
+        "subjectResolution": null,
+        "object": "Zambian and Zimbabwean segments",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "have been completed for"
+      },
+      {
+        "factId": 439,
+        "subject": "Mitigation measures",
+        "subjectResolution": null,
+        "object": "compensation for affected landowners, reforestation programs, HIV/AIDS awareness campaigns",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "include"
+      },
+      {
+        "factId": 440,
+        "subject": "Project",
+        "subjectResolution": null,
+        "object": "SAPP Regional Generation and Transmission Expansion Plan",
+        "objectResolution": {
+          "id": 932,
+          "name": "SAPP Regional Generation and Transmission Expansion Plan",
+          "matchType": "exact"
+        },
+        "status": "OBJECT_ONLY",
+        "predicate": "aligns with"
+      },
+      {
+        "factId": 441,
+        "subject": "Project",
+        "subjectResolution": null,
+        "object": "African Union's Agenda 2063",
+        "objectResolution": null,
+        "status": "NEITHER",
+        "predicate": "aligns with"
+      }
+    ]
+  },
+  "entityRelationships": {
+    "function": "createRelationshipsFromFacts",
+    "file": "lib/worker.ts",
+    "tablesRead": [
+      "facts",
+      "entities"
+    ],
+    "tablesWritten": [
+      "relationships"
+    ],
+    "factsEligible": 104,
+    "relationshipsStored": 3,
+    "columnMismatchDetected": false,
+    "mismatchDetails": [
+      "Code sets evidenceId (scalar) but schema has evidence_ids (JSON array)"
+    ],
+    "sourceEvidence": "createRelationshipsFromFacts exists=true, tries sourceEntityId=false, schema has source_id=true, schema has evidence_ids=true, schema has weight=false"
+  },
+  "evidenceConnections": {
+    "implementedSignals": [
+      "shared_entities",
+      "temporal",
+      "semantic",
+      "causal",
+      "shared_programs",
+      "shared_problems"
+    ],
+    "evidenceCount": 5,
+    "connectionsStored": 0,
+    "storyGraphEdgesStored": 0,
+    "contextGraphEdgesStored": 0,
+    "storyRelationshipsStored": 42,
+    "workerColumnMismatches": [
+      {
+        "table": "evidence_connections",
+        "codeTries": "sourceEvidenceId, targetEvidenceId, type",
+        "schemaRequires": "evidence_id_a, evidence_id_b, signal_type",
+        "result": "ALL_INSERTS_FAIL"
+      },
+      {
+        "table": "story_graph_edges",
+        "codeTries": "sourceId, targetId, type",
+        "schemaRequires": "evidence_id_a, evidence_id_b, relationship_type",
+        "result": "ALL_INSERTS_FAIL"
+      },
+      {
+        "table": "story_relationships",
+        "codeTries": "sourceEvidenceId, targetEvidenceId, relationshipType",
+        "schemaRequires": "source_evidence_id, target_evidence_id, relationship_type",
+        "result": "MAY_WORK_VIA_DRIZZLE_MAPPING"
+      }
+    ]
+  },
+  "graphEdges": {
+    "counts": {
+      "evidence_connections": 0,
+      "story_relationships": 42,
+      "story_graph_edges": 0,
+      "context_graph_edges": 0
+    },
+    "analysis": {
+      "primaryWorkingTable": "story_relationships",
+      "brokenTables": [
+        "evidence_connections",
+        "story_graph_edges"
+      ]
+    },
+    "isolatedEvidence": 0
+  },
+  "clusters": {
+    "v3_graphClusters": {
+      "count": 7,
+      "note": "Not written by buildSimpleStoryGraph"
+    },
+    "v4_storyCandidates": {
+      "count": 7
+    },
+    "candidateBreakdown": {
+      "total": 7,
+      "multiEvidence": 3,
+      "singleton": 4
+    }
+  },
+  "storyCandidates": {
+    "total": 7,
+    "evidenceLinked": 16,
+    "orphaned": 0,
+    "sample": [
+      {
+        "id": 84,
+        "name": "Zambia Renewable Energy Access Project (REAP) Story",
+        "status": "candidate",
+        "evidenceCount": 1,
+        "score": 0.6283,
+        "confidence": 0.5983
+      },
+      {
+        "id": 85,
+        "name": "SAPP Interconnector Project Story",
+        "status": "candidate",
+        "evidenceCount": 1,
+        "score": 0.5656,
+        "confidence": 0.5356
+      },
+      {
+        "id": 86,
+        "name": "Zambia Renewable Energy Access Project (REAP) Story",
+        "status": "candidate",
+        "evidenceCount": 3,
+        "score": 0.5808,
+        "confidence": 0.6908
+      },
+      {
+        "id": 87,
+        "name": "Zambia Renewable Energy Access Project (REAP) Story",
+        "status": "candidate",
+        "evidenceCount": 4,
+        "score": 0.5536,
+        "confidence": 0.6836
+      },
+      {
+        "id": 88,
+        "name": "National Renewable Energy Policy Story",
+        "status": "candidate",
+        "evidenceCount": 1,
+        "score": 0.5667,
+        "confidence": 0.5367
+      },
+      {
+        "id": 89,
+        "name": "Zambia Renewable Energy Access Project (REAP) Story",
+        "status": "candidate",
+        "evidenceCount": 5,
+        "score": 0.5563,
+        "confidence": 0.7063
+      },
+      {
+        "id": 90,
+        "name": "Southern African Power Pool Interconnector Project Story",
+        "status": "candidate",
+        "evidenceCount": 1,
+        "score": 0.5913,
+        "confidence": 0.5613
+      }
+    ]
+  },
+  "stories": {
+    "count": 0,
+    "classification": "EMPTY"
+  },
+  "narratives": {
+    "stored": 0,
+    "eligibleStories": 0,
+    "status": "EMPTY"
+  },
+  "timeline": {
+    "eventsStored": 7,
+    "codeExists": true,
+    "status": "WORKING"
+  },
+  "apiFrontend": {
+    "stories": {
+      "queriesStories": true,
+      "alsoQueriesNarratives": true,
+      "returnsGenerationType": true
+    },
+    "discover": {
+      "queriesGraphClusters": true,
+      "queriesStoryCandidates": true,
+      "callsRunDiscoveryPipeline": true
+    },
+    "graph": {
+      "queriesStoryRelationships": true,
+      "queriesStoryGraphEdges": false,
+      "queriesEvidenceConnections": false,
+      "queriesGraphClusters": true
+    }
+  },
+  "executionPaths": {
+    "describedPaths": {
+      "perEvidencePipeline": [
+        "processEvidenceJob -> fetch_evidence",
+        "processEvidenceJob -> extractStructuredFacts",
+        "processEvidenceJob -> storeFacts",
+        "processEvidenceJob -> storeEntities",
+        "processEvidenceJob -> createRelationshipsFromFacts",
+        "processEvidenceJob -> storeIntelligenceNodes",
+        "processEvidenceJob -> storeSingleDocumentAssessment",
+        "processEvidenceJob -> storeTimelineEvents",
+        "processEvidenceJob -> rebuildStoryGraph"
+      ],
+      "corpusPipeline": [
+        "runDiscoveryPipeline -> buildSimpleStoryGraph",
+        "buildSimpleStoryGraph -> storyRelationships (insert)",
+        "buildSimpleStoryGraph -> evidenceConnections (insert, MAY FAIL due to column mismatch)",
+        "buildSimpleStoryGraph -> storyGraphEdges (insert, MAY FAIL due to column mismatch)",
+        "buildSimpleStoryGraph -> storyCandidates (insert)",
+        "buildSimpleStoryGraph -> storyCandidateEvidence (insert)",
+        "buildSimpleStoryGraph -> stories (insert for components >= 2)",
+        "buildSimpleStoryGraph -> storyEvidence (insert)"
+      ]
+    },
+    "catchBlockCount": 35,
+    "emptyCatchCount": 0,
+    "earlyReturns": false
+  },
+  "silentFailures": [],
+  "mismatches": [],
+  "rootCauseAnalysis": {
+    "primaryRootCauses": [
+      {
+        "cause": "SCHEMA_COLUMN_MISMATCH",
+        "location": "lib/worker.ts createRelationshipsFromFacts",
+        "evidence": "Code sets evidenceId (scalar) but schema has evidence_ids (JSON array)",
+        "confidence": "HIGH",
+        "effect": "relationships table permanently empty despite facts and entities existing"
+      },
+      {
+        "cause": "SCHEMA_COLUMN_MISMATCH",
+        "location": "lib/worker.ts buildSimpleStoryGraph -> evidence_connections insert",
+        "evidence": "Code tries sourceEvidenceId, targetEvidenceId, type; schema requires evidence_id_a, evidence_id_b, signal_type",
+        "confidence": "HIGH",
+        "effect": "evidence_connections table permanently empty"
+      },
+      {
+        "cause": "SCHEMA_COLUMN_MISMATCH",
+        "location": "lib/worker.ts buildSimpleStoryGraph -> story_graph_edges insert",
+        "evidence": "Code tries sourceId, targetId, type; schema requires evidence_id_a, evidence_id_b, relationship_type",
+        "confidence": "HIGH",
+        "effect": "story_graph_edges table permanently empty"
+      }
+    ],
+    "secondaryFailures": [],
+    "downstreamSymptoms": []
+  },
+  "oldGraderComparison": [
+    {
+      "oldFinding": "relationships = 0 -> 'relationship creation or clustering is broken'",
+      "forensicResult": "Column name mismatch in createRelationshipsFromFacts: code uses sourceEntityId/targetEntityId/evidenceId/weight but schema has source_id/target_id/evidence_ids/created_by. All inserts fail silently in nested catch blocks.",
+      "verdict": "CONTRADICTED",
+      "note": "Old grader guessed 'clustering broken'; forensic grader proves exact column mismatch with source code evidence"
+    },
+    {
+      "oldFinding": "evidence_connections = 0 -> 'signal computation broken'",
+      "forensicResult": "buildSimpleStoryGraph tries sourceEvidenceId/targetEvidenceId but schema requires evidence_id_a/evidence_id_b. All inserts fail silently in nested catch blocks.",
+      "verdict": "CONTRADICTED",
+      "note": "Old grader assumed algorithm failure; forensic grader proves schema mismatch"
+    },
+    {
+      "oldFinding": "stories = 0 -> 'worker crashed or extraction failed'",
+      "forensicResult": "Depends on database state. If buildSimpleStoryGraph runs, it creates stories for components >= 2. If no edges exist (due to column mismatches or no shared signals), no multi-evidence stories are created.",
+      "verdict": "PARTIALLY_SUPPORTED",
+      "note": "Empty stories can be downstream of edge creation failure, not necessarily extraction failure"
+    },
+    {
+      "oldFinding": "narratives = 0 -> 'narrative generation never ran'",
+      "forensicResult": "Narratives table may be empty because generateNarrativesForValidatedStories is not called in the visible worker code, or because it has its own column mismatches.",
+      "verdict": "UNRESOLVED",
+      "note": "Requires inspection of generateNarrativesForValidatedStories implementation"
+    }
+  ]
+}

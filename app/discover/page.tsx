@@ -1,244 +1,297 @@
-"use client";
+"use client"
 
-import { useState, useEffect, useCallback } from "react";
-import Link from "next/link";
+import { useState } from "react"
+import Link from "next/link"
+import { AppShell } from "@/components/app-shell"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Loader2,
+  Sparkles,
+  GitBranch,
+  Users,
+  FileText,
+  CheckCircle,
+  Network,
+  BookOpen,
+  Plus,
+  AlertCircle,
+} from "lucide-react"
 
 interface ClusterView {
-  id: number;
-  name: string;
-  description: string | null;
-  status: string;
-  confidence: number;
-  evidenceIds: number[];
-  narrative: { id: number; title: string; overview: string } | null;
-  createdAt: string;
-}
-
-interface DiscoveryState {
-  clusters: ClusterView[];
-  totalEvidence: number;
-  totalCandidates: number;
-  totalNarratives: number;
-  totalClusters: number;
-  unlinkedCount: number;
-  clusteredCount: number;
+  id: number
+  name: string
+  description: string
+  density: number
+  status: "new" | "strengthened" | "merged" | "stable" | "candidate"
+  evidenceCount: number
+  entityCount: number
+  evidenceIds: number[]
+  entityIds: number[]
+  narrative?: { title: string; overview: string; confidence: number } | null
 }
 
 export default function DiscoverPage() {
-  const [clusters, setClusters] = useState<ClusterView[]>([]);
-  const [totalEvidence, setTotalEvidence] = useState(0);
-  const [totalCandidates, setTotalCandidates] = useState(0);
-  const [totalNarratives, setTotalNarratives] = useState(0);
-  const [unlinkedCount, setUnlinkedCount] = useState(0);
-  const [clusteredCount, setClusteredCount] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [clusters, setClusters] = useState<ClusterView[]>([])
+  const [unlinkedCount, setUnlinkedCount] = useState(0)
+  const [clusteredCount, setClusteredCount] = useState(0)
+  const [totalNarratives, setTotalNarratives] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [creating, setCreating] = useState<number | null>(null)
+  const [created, setCreated] = useState<number[]>([])
+  const [filter, setFilter] = useState<"all" | "new" | "strengthened" | "stable" | "candidate">("all")
 
-  const loadState = useCallback(async () => {
+  const runDiscovery = async () => {
+    setLoading(true)
     try {
-      setLoading(true);
-      setError(null);
-      const res = await fetch("/api/discover");
-      if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
-      const data: DiscoveryState = await res.json();
-      setClusters(data.clusters || []);
-      setTotalEvidence(data.totalEvidence ?? 0);
-      setTotalCandidates(data.totalCandidates ?? 0);
-      setTotalNarratives(data.totalNarratives ?? 0);
-      setUnlinkedCount(data.unlinkedCount ?? 0);
-      setClusteredCount(data.clusteredCount ?? 0);
-    } catch (err: any) {
-      setError(err.message || "Failed to load");
-    } finally {
-      setLoading(false);
+      const res = await fetch("/api/discover")
+      const data = await res.json()
+      if (res.ok) {
+        setClusters(data.clusters || [])
+        setUnlinkedCount(data.unlinkedCount || 0)
+        setClusteredCount(data.clusteredCount || 0)
+        setTotalNarratives(data.totalNarratives || 0)
+      }
+    } catch {
+      alert("Discovery failed")
     }
-  }, []);
+    setLoading(false)
+  }
 
-  const runDiscovery = useCallback(async () => {
+  const createStory = async (cluster: ClusterView, index: number) => {
+    setCreating(index)
     try {
-      setLoading(true);
-      setError(null);
-      const res = await fetch("/api/discover", { method: "PUT" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      setClusters(data.clusters || []);
-      setTotalEvidence(data.totalEvidence ?? 0);
-      setTotalCandidates(data.totalCandidates ?? 0);
-      setTotalNarratives(data.totalNarratives ?? 0);
-      setUnlinkedCount(data.unlinkedCount ?? 0);
-      setClusteredCount(data.clusteredCount ?? 0);
-    } catch (err: any) {
-      setError(err.message || "Discovery failed");
-    } finally {
-      setLoading(false);
+      const res = await fetch("/api/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: cluster.narrative?.title || cluster.name,
+          overview: cluster.narrative?.overview || cluster.description,
+          evidenceIds: cluster.evidenceIds,
+        }),
+      })
+      if (res.ok) {
+        setCreated((prev) => [...prev, index])
+      } else {
+        alert("Failed to create story")
+      }
+    } catch {
+      alert("Network error")
     }
-  }, []);
+    setCreating(null)
+  }
 
-  useEffect(() => { loadState(); }, [loadState]);
+  const filtered = clusters.filter((c) => {
+    if (filter === "all") return true
+    return c.status === filter
+  })
 
-  const safeFixed = (n: any, d = 1) => {
-    const v = typeof n === "number" && !isNaN(n) ? n : 0;
-    return v.toFixed(d);
-  };
-
-  const pct = (part: number, whole: number) => {
-    return whole > 0 ? safeFixed((part / whole) * 100, 1) : "0.0";
-  };
-
-  const StatCard = ({ label, value, subtext, color = "blue" }: { label: string; value: string | number; subtext?: string; color?: string }) => {
-    const colorMap: Record<string, string> = {
-      blue: "bg-blue-50 border-blue-200 text-blue-900",
-      green: "bg-emerald-50 border-emerald-200 text-emerald-900",
-      amber: "bg-amber-50 border-amber-200 text-amber-900",
-      slate: "bg-slate-50 border-slate-200 text-slate-900",
-    };
-    return (
-      <div className={`rounded-xl border p-5 ${colorMap[color] || colorMap.blue}`}>
-        <div className="text-sm font-medium opacity-70 uppercase tracking-wide">{label}</div>
-        <div className="text-3xl font-bold mt-1">{value}</div>
-        {subtext && <div className="text-sm mt-1 opacity-60">{subtext}</div>}
-      </div>
-    );
-  };
+  const statusVariant = (status: string) => {
+    switch (status) {
+      case "new": return "default"
+      case "strengthened": return "secondary"
+      case "merged": return "destructive"
+      case "stable": return "outline"
+      default: return "outline"
+    }
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b">
-        <div className="max-w-7xl mx-auto px-6 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Discovery</h1>
-              <p className="text-sm text-gray-500 mt-1">
-                Automatically discover stories and narratives from your evidence
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={loadState}
-                disabled={loading}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition"
-              >
-                {loading ? "Loading..." : "Refresh"}
-              </button>
-              <button
-                onClick={runDiscovery}
-                disabled={loading}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition shadow-sm"
-              >
-                {loading ? "Running..." : "Run Discovery"}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="max-w-7xl mx-auto px-6 py-6">
-        {/* Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-          <StatCard label="Evidence" value={totalEvidence} color="slate" />
-          <StatCard label="Candidates" value={totalCandidates} color="blue" />
-          <StatCard label="Narratives" value={totalNarratives} color="green" />
-          <StatCard label="Linked" value={clusteredCount} subtext={`${pct(clusteredCount, totalEvidence)}% of evidence`} color="green" />
-          <StatCard label="Unlinked" value={unlinkedCount} subtext={`${pct(unlinkedCount, totalEvidence)}% of evidence`} color="amber" />
-          <StatCard label="Clusters" value={clusters.length} color="blue" />
-        </div>
-
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-            {error}
-          </div>
-        )}
-
-        {/* Clusters */}
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">
-            Discovered Clusters
-            <span className="ml-2 text-sm font-normal text-gray-500">({clusters.length})</span>
-          </h2>
-        </div>
-
-        {clusters.length === 0 && !loading && (
-          <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-            <div className="text-gray-400 text-4xl mb-3">🔍</div>
-            <h3 className="text-lg font-medium text-gray-900">No clusters found</h3>
-            <p className="text-sm text-gray-500 mt-1 max-w-md mx-auto">
-              Upload evidence documents and click "Run Discovery" to automatically identify stories and relationships.
+    <AppShell>
+      <div className="mx-auto max-w-5xl space-y-6">
+        {/* Header — matches Stories page exactly */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+              <Network className="h-6 w-6 text-indigo-400" />
+              Story Discovery
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Graph-driven discovery: clusters, hidden paths, and emerging narratives
             </p>
           </div>
+          <div className="flex gap-2">
+            <Button onClick={runDiscovery} disabled={loading} size="sm">
+              {loading ? (
+                <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Analyzing...</>
+              ) : (
+                <><Sparkles className="mr-1 h-4 w-4" /> Run Discovery</>
+              )}
+            </Button>
+            <Link href="/stories/new">
+              <Button variant="outline" size="sm">
+                <Plus className="mr-1 h-4 w-4" /> New Story
+              </Button>
+            </Link>
+          </div>
+        </div>
+
+        {/* Stats bar — matches Stories metadata pattern */}
+        {clusters.length > 0 && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Badge variant="outline">{unlinkedCount} unlinked</Badge>
+            <Badge variant="outline">{clusteredCount} clustered</Badge>
+            <Badge variant="outline">{clusters.length} clusters</Badge>
+            <Badge variant="outline">{totalNarratives} narratives</Badge>
+          </div>
         )}
 
-        <div className="space-y-4">
-          {clusters.map((cluster) => {
-            const confidence = typeof cluster.confidence === "number" && !isNaN(cluster.confidence) ? cluster.confidence : 0;
-            const evidenceCount = Array.isArray(cluster.evidenceIds) ? cluster.evidenceIds.length : 0;
-            const statusColor =
-              cluster.status === "validated" ? "bg-green-100 text-green-800 border-green-200" :
-              cluster.status === "story" ? "bg-blue-100 text-blue-800 border-blue-200" :
-              cluster.status === "rejected" ? "bg-red-100 text-red-800 border-red-200" :
-              "bg-gray-100 text-gray-700 border-gray-200";
+        {/* Filter tabs — matches Stories page All/Manual/Auto pattern */}
+        {clusters.length > 0 && (
+          <Tabs value={filter} onValueChange={(v) => setFilter(v as any)} className="w-auto">
+            <TabsList>
+              <TabsTrigger value="all">All</TabsTrigger>
+              <TabsTrigger value="new">New</TabsTrigger>
+              <TabsTrigger value="strengthened">Strengthened</TabsTrigger>
+              <TabsTrigger value="stable">Stable</TabsTrigger>
+              <TabsTrigger value="candidate">Candidates</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        )}
 
-            return (
-              <div key={cluster.id} className="bg-white rounded-xl border border-gray-200 hover:shadow-md transition-shadow">
-                <div className="p-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="text-base font-semibold text-gray-900 truncate">{cluster.name}</h3>
-                        <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${statusColor}`}>
-                          {cluster.status || "candidate"}
-                        </span>
-                      </div>
+        {/* Empty state — matches Stories page exactly */}
+        {clusters.length === 0 && !loading && (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <GitBranch className="h-12 w-12 text-muted-foreground opacity-40 mx-auto" />
+              <p className="mt-3 text-muted-foreground">No story clusters found yet</p>
+              <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+                Upload evidence with full text content. The graph reasoning system will extract atomic facts, compute connection signals, and discover emerging clusters.
+              </p>
+              <div className="flex justify-center gap-2 mt-4">
+                <Link href="/evidence/new">
+                  <Button size="sm">
+                    <FileText className="mr-1 h-4 w-4" /> Add Evidence
+                  </Button>
+                </Link>
+                <Button variant="outline" size="sm" onClick={runDiscovery}>
+                  <Sparkles className="mr-1 h-4 w-4" /> Run Discovery
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
-                      {cluster.description && (
-                        <p className="text-sm text-gray-600 mt-1.5 line-clamp-2">{cluster.description}</p>
+        {/* Cluster list — matches Stories card pattern */}
+        {filtered.length > 0 && (
+          <div className="grid gap-3">
+            {filtered.map((cluster, idx) => (
+              <Card
+                key={cluster.id}
+                className={`transition-colors hover:bg-accent ${
+                  cluster.status === "candidate"
+                    ? "border-l-4 border-l-amber-500/40"
+                    : "border-l-4 border-l-indigo-500/40"
+                } ${created.includes(idx) ? "opacity-60" : ""}`}
+              >
+                <CardContent className="flex items-start justify-between py-4 gap-4">
+                  <div className="min-w-0 flex-1">
+                    {/* Title row */}
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <h3 className="text-sm font-medium">{cluster.name}</h3>
+                      <Badge variant={statusVariant(cluster.status)} className="text-[10px] capitalize">
+                        {cluster.status}
+                      </Badge>
+                      {cluster.narrative && (
+                        <Badge className="bg-indigo-500/10 text-indigo-400 border-indigo-500/20 text-[10px]">
+                          <Sparkles className="h-2.5 w-2.5 mr-0.5" /> Narrative
+                        </Badge>
                       )}
+                      {cluster.evidenceCount >= 2 && (
+                        <Badge variant="outline" className="text-[10px]">
+                          <CheckCircle className="h-2.5 w-2.5 mr-0.5" /> Multi-evidence
+                        </Badge>
+                      )}
+                    </div>
 
-                      <div className="flex items-center gap-4 mt-3 text-sm text-gray-500">
-                        <span className="flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full bg-blue-400"></span>
-                          Confidence: {safeFixed(confidence, 2)}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                          {evidenceCount} evidence
-                        </span>
-                      </div>
+                    {/* Description */}
+                    <p className="text-xs text-muted-foreground line-clamp-2">
+                      {cluster.description}
+                    </p>
+
+                    {/* Metadata row — matches Stories page pattern */}
+                    <div className="flex items-center gap-2 mt-2 text-[10px] text-muted-foreground flex-wrap">
+                      <span>{cluster.evidenceCount} evidence</span>
+                      <span>·</span>
+                      <span className="flex items-center gap-0.5">
+                        <Users className="h-2.5 w-2.5" />
+                        {cluster.entityCount} entities
+                      </span>
+                      <span>·</span>
+                      <span>density {(cluster.density || 0).toFixed(2)}</span>
+                      {cluster.narrative && (
+                        <>
+                          <span>·</span>
+                          <span className="text-indigo-400">
+                            {(cluster.narrative.confidence * 100).toFixed(0)}% confidence
+                          </span>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Evidence links */}
+                    <div className="flex items-center gap-1 mt-1.5 text-[10px] text-muted-foreground flex-wrap">
+                      <span>Evidence:</span>
+                      {cluster.evidenceIds.slice(0, 6).map((id) => (
+                        <Link
+                          key={id}
+                          href={`/evidence/${id}`}
+                          className="hover:text-primary transition-colors underline underline-offset-2"
+                        >
+                          #{id}
+                        </Link>
+                      ))}
+                      {cluster.evidenceIds.length > 6 && (
+                        <span>+{cluster.evidenceIds.length - 6} more</span>
+                      )}
                     </div>
                   </div>
 
-                  {cluster.narrative && (
-                    <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-100">
-                      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Narrative</div>
-                      <div className="text-sm font-medium text-gray-900">{cluster.narrative.title}</div>
-                      {cluster.narrative.overview && (
-                        <p className="text-sm text-gray-600 mt-1 line-clamp-3">{cluster.narrative.overview}</p>
-                      )}
-                    </div>
-                  )}
+                  {/* Action button */}
+                  <div className="shrink-0">
+                    {created.includes(idx) ? (
+                      <Badge className="bg-emerald-500/20 text-emerald-400">
+                        <CheckCircle className="h-3 w-3 mr-1" /> Created
+                      </Badge>
+                    ) : cluster.evidenceCount >= 2 ? (
+                      <Button
+                        size="sm"
+                        onClick={() => createStory(cluster, idx)}
+                        disabled={creating === idx}
+                      >
+                        {creating === idx ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <><Plus className="mr-1 h-3.5 w-3.5" /> Create Story</>
+                        )}
+                      </Button>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px]">
+                        <AlertCircle className="h-2.5 w-2.5 mr-0.5" /> Needs more evidence
+                      </Badge>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
 
-                  {evidenceCount > 0 && (
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {cluster.evidenceIds.slice(0, 8).map((eid) => (
-                        <Link
-                          key={eid}
-                          href={`/evidence/${eid}`}
-                          className="text-xs px-2.5 py-1 bg-blue-50 text-blue-700 rounded-md hover:bg-blue-100 border border-blue-100 transition"
-                        >
-                          E{eid}
-                        </Link>
-                      ))}
-                      {evidenceCount > 8 && (
-                        <span className="text-xs text-gray-400 px-1 py-1">+{evidenceCount - 8} more</span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        {/* No results after filter */}
+        {clusters.length > 0 && filtered.length === 0 && !loading && (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <BookOpen className="h-12 w-12 text-muted-foreground opacity-40 mx-auto" />
+              <p className="mt-3 text-muted-foreground">No clusters match the selected filter</p>
+              <Button variant="outline" size="sm" className="mt-4" onClick={() => setFilter("all")}>
+                Show all clusters
+              </Button>
+            </CardContent>
+          </Card>
+        )}
       </div>
-    </div>
-  );
+    </AppShell>
+  )
 }

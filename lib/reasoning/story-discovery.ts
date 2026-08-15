@@ -216,27 +216,34 @@ export async function persistStoryDiscovery(
 }
 
 async function persistStoryRelationships(edges: AggregatedEdge[]): Promise<void> {
+  let created = 0;
+  let skipped = 0;
   try {
     for (const edge of edges) {
       for (const rel of edge.contributingRelationships) {
-        await db.insert(storyRelationships).values({
-          sourceEvidenceId: rel.sourceEvidenceId,
-          targetEvidenceId: rel.targetEvidenceId,
-          relationshipType: rel.type,
-          weight: rel.finalWeight ?? rel.weight,
-          confidence: rel.confidence,
-          explicit: rel.explicit,
-          reason: rel.reason,
-          sourceProgramId: rel.sourceProgramId ?? null,
-          sourceEventId: rel.sourceEventId ?? null,
-          sourceProblemId: rel.sourceProblemId ?? null,
-          sourceOutcomeId: rel.sourceOutcomeId ?? null,
-          sourceActorId: rel.sourceActorId ?? null,
-        }).onConflictDoNothing();
+        try {
+          await db.insert(storyRelationships).values({
+            sourceEvidenceId: rel.sourceEvidenceId,
+            targetEvidenceId: rel.targetEvidenceId,
+            relationshipType: rel.type,
+            weight: rel.finalWeight ?? rel.weight,
+            confidence: rel.confidence,
+            explicit: rel.explicit,
+            reason: rel.reason,
+          }).onConflictDoNothing();
+          created++;
+        } catch (innerErr: any) {
+          if (innerErr.message?.includes("UNIQUE constraint failed")) {
+            skipped++;
+          } else {
+            console.error(`[story-discovery] Failed to persist relationship ${rel.sourceEvidenceId}-${rel.targetEvidenceId}:`, innerErr);
+          }
+        }
       }
     }
+    console.log(`[story-discovery] Persisted ${created} story relationships (${skipped} duplicates skipped)`);
   } catch (err) {
-    console.error("[worker] Failed to persist story relationships:", err);
+    console.error("[story-discovery] Failed to persist story relationships:", err);
   }
 }
 
@@ -245,26 +252,47 @@ async function persistStoryCandidates(
   rejected: StoryCandidate[]
 ): Promise<void> {
   try {
-    // Note: In production, use a transaction and targeted cleanup
-    for (const candidate of [...candidates, ...rejected]) {
-      // FIX: Use .run() + lastInsertRowid instead of .returning() for SQLite
-      const result = db.insert(storyCandidates).values({
-        name: candidate.name,
-        description: candidate.description,
-        coherenceScore: candidate.coherenceScore,
-        confidence: candidate.confidence,
-        dominantProgramId: candidate.dominantProgram?.id ?? null,
-        dominantProblemId: candidate.dominantProblem?.id ?? null,
-        dominantTheme: candidate.dominantTheme,
-        causalChain: JSON.stringify(candidate.causalChain),
-        reasons: JSON.stringify(candidate.reasons),
-        status: candidate.status,
-        relationshipCounts: JSON.stringify(candidate.relationshipCounts),
-        diagnostics: JSON.stringify(candidate.diagnostics),
-      }).run();
+    const allExisting = db.select().from(storyCandidates).all() as any[];
+    const existingSignatures = new Map<string, number>();
+    for (const ec of allExisting) {
+      try {
+        const ids: number[] = JSON.parse(ec.evidenceIds || "[]");
+        const sig = ids.sort((a: number, b: number) => a - b).join(",");
+        existingSignatures.set(sig, ec.id);
+      } catch { /* ignore */ }
+    }
 
-      const candidateId = Number(result.lastInsertRowid);
-      if (!candidateId || candidateId === 0) continue;
+    for (const candidate of [...candidates, ...rejected]) {
+      const sig = [...candidate.evidenceIds].sort((a, b) => a - b).join(",");
+      let candidateId = existingSignatures.get(sig);
+
+      if (candidateId) {
+        console.log(`[story-discovery] Reusing existing candidate ${candidateId} for signature [${sig}]`);
+      } else {
+        const result = db.insert(storyCandidates).values({
+          name: candidate.name,
+          description: candidate.description,
+          evidenceIds: JSON.stringify(candidate.evidenceIds),
+          seedType: (candidate as any).seedType || "program_cluster",
+          coherenceScore: candidate.coherenceScore,
+          confidence: candidate.confidence,
+          dominantProgramId: candidate.dominantProgram?.id ?? null,
+          dominantProblemId: candidate.dominantProblem?.id ?? null,
+          dominantTheme: candidate.dominantTheme,
+          causalChain: JSON.stringify(candidate.causalChain),
+          reasons: JSON.stringify(candidate.reasons),
+          status: candidate.status,
+          relationshipCounts: JSON.stringify(candidate.relationshipCounts),
+          diagnostics: JSON.stringify(candidate.diagnostics),
+          isValid: candidate.status === "validated" || candidate.status === "promoted" || candidate.status === "story",
+          provenanceEdges: JSON.stringify((candidate as any).provenanceEdges || []),
+        }).run();
+
+        candidateId = Number(result.lastInsertRowid);
+        if (!candidateId || candidateId === 0) continue;
+        existingSignatures.set(sig, candidateId);
+        console.log(`[story-discovery] Created candidate ${candidateId}: "${candidate.name}" (${candidate.evidenceIds.length} evidence)`);
+      }
 
       // Seed evidence
       for (const eid of candidate.seedEvidenceIds) {
@@ -306,7 +334,22 @@ async function persistStoryCandidates(
 
 async function persistGraphClusters(output: StoryDiscoveryOutput): Promise<void> {
   try {
+    const allExisting = db.select().from(graphClusters).all() as any[];
+    const existingSignatures = new Set<string>();
+    for (const ec of allExisting) {
+      try {
+        const ids: number[] = JSON.parse(ec.evidenceIds || "[]");
+        existingSignatures.add(ids.sort((a: number, b: number) => a - b).join(","));
+      } catch { /* ignore */ }
+    }
+
     for (const candidate of output.candidates) {
+      const sig = [...candidate.evidenceIds].sort((a, b) => a - b).join(",");
+      if (existingSignatures.has(sig)) {
+        console.log(`[story-discovery] Skipping duplicate graph cluster for signature [${sig}]`);
+        continue;
+      }
+
       await db.insert(graphClusters).values({
         name: candidate.name,
         description: candidate.description,
@@ -315,10 +358,12 @@ async function persistGraphClusters(output: StoryDiscoveryOutput): Promise<void>
         evidenceCount: candidate.evidenceIds.length,
         entityCount: 0,
         evidenceIds: JSON.stringify(candidate.evidenceIds),
-      }).onConflictDoNothing();
+      }).run();
+      existingSignatures.add(sig);
+      console.log(`[story-discovery] Created graph cluster for "${candidate.name}" (${candidate.evidenceIds.length} evidence)`);
     }
   } catch (err) {
-    console.error("[worker] Failed to persist graph clusters:", err);
+    console.error("[story-discovery] Failed to persist graph clusters:", err);
   }
 }
 
