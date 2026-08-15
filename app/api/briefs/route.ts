@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
       storyOverview: story.overview,
       evidenceItems: evidenceItems.map((e) => ({
         title: e.title,
-        summary: e.summary,
+        summary: e.content?.substring(0, 800) || e.title,
         source: e.source,
       })),
       mode,

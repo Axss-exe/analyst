@@ -42,6 +42,7 @@ import {
   stories,
   relationships,
   storyGraphEdges,
+  contextGraphEdges,
   evidenceConnections,
   timelineEvents,
 } from "@/db/schema";
@@ -350,28 +351,135 @@ async function createRelationshipsFromFacts(evidenceId: number): Promise<void> {
   }
 
   const entityRows = db.select().from(entities).all();
-  const entityMap = new Map<string, number>();
+
+  // Build multi-layer entity resolution map
+  const exactMap = new Map<string, number>();
+  const lowerMap = new Map<string, number>();
+  const aliasMap = new Map<number, string[]>();
+  const normalizedMap = new Map<string, number>();
+  const wordSetMap = new Map<number, Set<string>>();
+
   for (const e of entityRows) {
-    entityMap.set(e.name.toLowerCase().trim(), e.id);
+    exactMap.set(e.name, e.id);
+    lowerMap.set(e.name.toLowerCase().trim(), e.id);
+
+    // Parse aliases
+    let aliases: string[] = [];
     try {
-      const aliases: string[] = JSON.parse(e.aliases || "[]");
-      for (const alias of aliases) {
-        if (alias) entityMap.set(String(alias).toLowerCase().trim(), e.id);
+      aliases = JSON.parse(e.aliases || "[]");
+    } catch { /* ignore */ }
+    aliasMap.set(e.id, aliases);
+
+    for (const alias of aliases) {
+      if (alias) {
+        exactMap.set(alias, e.id);
+        lowerMap.set(String(alias).toLowerCase().trim(), e.id);
       }
-    } catch {
-      // ignore alias parse errors
     }
+
+    // Normalized: remove punctuation, "the", "limited", "inc", etc.
+    const normalized = normalizeEntityName(e.name);
+    normalizedMap.set(normalized, e.id);
+    for (const alias of aliases) {
+      if (alias) {
+        normalizedMap.set(normalizeEntityName(alias), e.id);
+      }
+    }
+
+    // Word set for fuzzy matching
+    const words = new Set(e.name.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+    wordSetMap.set(e.id, words);
+  }
+
+  function normalizeEntityName(name: string): string {
+    return name
+      .toLowerCase()
+      .replace(/[^\w\s]/g, " ")
+      .replace(/(the|a|an|of|for|and|&|limited|ltd|inc|corp|corporation|company|co|plc|group)/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function resolveEntity(name: string): number | undefined {
+    const trimmed = name.trim();
+    if (!trimmed) return undefined;
+
+    // 1. Exact match
+    if (exactMap.has(trimmed)) return exactMap.get(trimmed);
+
+    // 2. Lowercase exact match
+    const lower = trimmed.toLowerCase();
+    if (lowerMap.has(lower)) return lowerMap.get(lower);
+
+    // 3. Normalized match
+    const normalized = normalizeEntityName(trimmed);
+    if (normalizedMap.has(normalized)) return normalizedMap.get(normalized);
+
+    // 4. Substring containment (entity name contained in fact name)
+    for (const [ename, eid] of lowerMap) {
+      if (lower.includes(ename) || ename.includes(lower)) {
+        return eid;
+      }
+    }
+
+    // 5. Word overlap match (at least 2 significant words in common)
+    const factWords = new Set(lower.split(/\s+/).filter(w => w.length > 2));
+    let bestMatch: number | undefined;
+    let bestOverlap = 0;
+    for (const [eid, ewords] of wordSetMap) {
+      let overlap = 0;
+      for (const w of factWords) {
+        if (ewords.has(w)) overlap++;
+      }
+      if (overlap >= 2 && overlap > bestOverlap) {
+        bestOverlap = overlap;
+        bestMatch = eid;
+      }
+    }
+    if (bestMatch) return bestMatch;
+
+    // 6. Known aliases / abbreviations
+    const knownAliases: Record<string, string> = {
+      "afdb": "african development bank",
+      "adb": "african development bank",
+      "zesco": "zesco limited",
+      "zambia": "republic of zambia",
+      "zimbabwe": "republic of zimbabwe",
+      "world bank": "world bank group",
+      "wb": "world bank group",
+      "imf": "international monetary fund",
+      "eu": "european union",
+      "un": "united nations",
+      "us": "united states",
+      "uk": "united kingdom",
+      "sa": "south africa",
+      "drc": "democratic republic of congo",
+    };
+
+    for (const [abbr, full] of Object.entries(knownAliases)) {
+      if (lower === abbr || normalized === normalizeEntityName(full)) {
+        const resolved = lowerMap.get(full);
+        if (resolved) return resolved;
+      }
+    }
+
+    return undefined;
   }
 
   let created = 0;
   let updated = 0;
   let skipped = 0;
+  let resolvedSubj = 0;
+  let resolvedObj = 0;
+  let resolvedBoth = 0;
 
   for (const fact of factRows) {
-    const subjName = (fact.subject || "").toLowerCase().trim();
-    const objName = (fact.object || "").toLowerCase().trim();
-    const subjId = entityMap.get(subjName);
-    const objId = entityMap.get(objName);
+    const subjId = resolveEntity(fact.subject || "");
+    const objId = resolveEntity(fact.object || "");
+
+    if (subjId) resolvedSubj++;
+    if (objId) resolvedObj++;
+    if (subjId && objId) resolvedBoth++;
 
     if (!subjId || !objId) {
       skipped++;
@@ -422,13 +530,12 @@ async function createRelationshipsFromFacts(evidenceId: number): Promise<void> {
     }
   }
 
-  console.log(`[worker] Relationships from facts for E${evidenceId}: ${created} created, ${updated} updated, ${skipped} skipped (from ${factRows.length} facts)`);
+  console.log(
+    `[worker] Relationships from facts for E${evidenceId}: ${created} created, ${updated} updated, ${skipped} skipped. ` +
+    `Resolution: ${resolvedSubj}/${factRows.length} subjects, ${resolvedObj}/${factRows.length} objects, ${resolvedBoth} both`
+  );
 }
 
-
-// ═════════════════════════════════════════════════════════════════
-// NEW: STORE TIMELINE EVENTS
-// ═════════════════════════════════════════════════════════════════
 
 async function storeTimelineEvents(evidenceId: number, text: string, title: string): Promise<void> {
   console.log(`[worker] Extracting timeline events for E${evidenceId}`);
@@ -752,6 +859,7 @@ async function rebuildStoryGraph(allEvidenceIds: number[]): Promise<void> {
   console.log(`[worker] Rebuilding story graph for ${allEvidenceIds.length} evidence items`);
 
   try {
+    // Try v4 pipeline first (creates rich candidates, storyRelationships, graphClusters)
     try {
       const { runStoryDiscoveryPipeline, persistStoryDiscovery } = await import("@/lib/reasoning/story-discovery");
       const intelligenceMap = await loadIntelligenceMap(allEvidenceIds);
@@ -769,19 +877,23 @@ async function rebuildStoryGraph(allEvidenceIds: number[]): Promise<void> {
 
       const output = runStoryDiscoveryPipeline(input);
       await persistStoryDiscovery(output);
-      console.log(`[worker] Graph rebuild complete via v4 pipeline`);
-      return;
+      console.log(`[worker] V4 pipeline complete: ${output.candidates.length} candidates`);
     } catch (v4Err) {
-      console.log(`[worker] v4 pipeline unavailable, falling back to simple graph build:`, v4Err);
+      console.log(`[worker] V4 pipeline unavailable:`, v4Err);
     }
 
+    // ALWAYS run simple graph to ensure evidenceConnections, storyGraphEdges,
+    // contextGraphEdges, stories, and storyCandidateEvidence are populated.
+    // Idempotent — won't create duplicates due to unique constraints + signature checks.
     await buildSimpleStoryGraph(allEvidenceIds);
+    console.log(`[worker] Simple graph fallback complete`);
 
   } catch (err) {
     console.error(`[worker] Graph rebuild failed:`, err);
     throw err;
   }
 }
+
 
 async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
   console.log(`[worker] Building simple story graph for ${allEvidenceIds.length} evidence items...`);
@@ -900,6 +1012,24 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
             console.error(`[worker] Failed to insert story graph edge ${sourceId}-${targetId}:`, e);
           }
         }
+
+        // Also create context_graph_edges (v4 context graph layer)
+        try {
+          db.insert(contextGraphEdges).values({
+            evidenceIdA: sourceId,
+            evidenceIdB: targetId,
+            relationshipType: weight > 0.6 ? "strong_connection" : "shared_context",
+            weight,
+            confidence: 0.6,
+            explicit: true,
+            explanation: reason || "Shared context",
+            sourceEvidence: "simple_graph",
+          }).run();
+        } catch (e: any) {
+          if (!e.message?.includes("UNIQUE constraint failed")) {
+            console.error(`[worker] Failed to insert context graph edge ${sourceId}-${targetId}:`, e);
+          }
+        }
       }
     }
   }
@@ -986,6 +1116,8 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
     // Idempotent candidate creation: check by evidence signature
     let candidateId: number | null = null;
     const allCandidates = db.select().from(storyCandidates).all();
+
+    // First: try exact evidence signature match
     for (const cand of allCandidates as any[]) {
       try {
         const candIds: number[] = JSON.parse(cand.evidenceIds || "[]");
@@ -998,7 +1130,32 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
       }
     }
 
-    if (candidateId) {
+    // Second: try name match (same conceptual story, evidence may have grown)
+    if (!candidateId) {
+      for (const cand of allCandidates as any[]) {
+        if (cand.name === name) {
+          candidateId = cand.id;
+          // Update the existing candidate with the new/larger evidence set
+          try {
+            db.update(storyCandidates)
+              .set({
+                evidenceIds: evidenceIdsJson,
+                coherenceScore: Math.min(0.95, 0.5 + component.length * 0.1),
+                confidence: Math.min(0.95, 0.5 + component.length * 0.08),
+                status: component.length >= 2 ? "story" : "candidate",
+                isValid: component.length >= 2,
+              })
+              .where(eq(storyCandidates.id, candidateId))
+              .run();
+            console.log(`[worker] Updated candidate ${candidateId}: "${name}" now has ${component.length} evidence items`);
+          } catch (e) {
+            console.error(`[worker] Failed to update candidate ${candidateId}:`, e);
+          }
+          break;
+        }
+      }
+    }
+if (candidateId) {
       console.log(`[worker] Reusing existing candidate ${candidateId} for component [${component.join(",")}]`);
     } else {
       const candResult = db.insert(storyCandidates).values({
@@ -1042,7 +1199,18 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
 
     // Only create stories for multi-evidence clusters (>= 2)
     if (component.length >= 2) {
+      // Ensure candidate status is "story" (promote from "candidate" if needed)
+      try {
+        db.update(storyCandidates)
+          .set({ status: "story", isValid: true })
+          .where(eq(storyCandidates.id, candidateId))
+          .run();
+      } catch (e) {
+        // ignore update errors
+      }
+
       // Idempotent story creation: check by title
+      let storyId: number | null = null;
       const existingStory = db.select().from(stories).where(eq(stories.title, name)).get();
       if (!existingStory) {
         const storyResult = db.insert(stories).values({
@@ -1056,10 +1224,16 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
           createdAt: now,
           updatedAt: now,
         }).run();
-        const storyId = Number(storyResult.lastInsertRowid);
+        storyId = Number(storyResult.lastInsertRowid);
         storyCount++;
         console.log(`[worker] Created story S${storyId}: "${name}" (${component.length} evidence)`);
+      } else {
+        storyId = existingStory.id;
+        console.log(`[worker] Reusing existing story S${storyId}: "${name}"`);
+      }
 
+      // Link evidence to story (idempotent)
+      if (storyId) {
         let storyLinked = 0;
         for (const eid of component) {
           try {
@@ -1077,8 +1251,6 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
           }
         }
         console.log(`[worker] Linked ${storyLinked} evidence items to story S${storyId}`);
-      } else {
-        console.log(`[worker] Story already exists for "${name}", skipping`);
       }
     }
   }
@@ -1241,19 +1413,30 @@ async function buildEvidenceContexts(evidenceIds: number[], intelligenceMap: Map
 
 async function generateNarrativesForValidatedStories(): Promise<void> {
   try {
+    // Process ALL candidates with >= 2 evidence items, regardless of status.
+    // The v4 pipeline may leave rich multi-evidence candidates as "candidate" status.
     const allCandidates = db.select()
       .from(storyCandidates)
-      .where(inArray(storyCandidates.status, ["validated", "promoted", "story"]))
+      .where(inArray(storyCandidates.status, ["validated", "promoted", "story", "candidate"]))
       .all();
 
-    if ((allCandidates as any[]).length === 0) {
+    const multiEvidenceCandidates = (allCandidates as any[]).filter((c) => {
+      try {
+        const ids: number[] = JSON.parse(c.evidenceIds || "[]");
+        return ids.length >= 2;
+      } catch {
+        return false;
+      }
+    });
+
+    if (multiEvidenceCandidates.length === 0) {
       console.log(`[worker] No candidates for narrative generation`);
       return;
     }
 
-    console.log(`[worker] Generating narratives for ${(allCandidates as any[]).length} candidates`);
+    console.log(`[worker] Generating narratives for ${multiEvidenceCandidates.length} multi-evidence candidates`);
 
-    for (const candidate of allCandidates as any[]) {
+    for (const candidate of multiEvidenceCandidates) {
       try {
         const candidateIdStr = JSON.stringify([candidate.id]);
         const existing = db.select().from(narratives)
