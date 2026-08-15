@@ -84,7 +84,7 @@ function safeParseJSON<T>(text: string): T | null {
     return JSON.parse(cleaned) as T;
   } catch {
     try {
-      const match = text.match(/\{[\s\S]*?\}/);
+      const match = text.match(/\{[\s\S]*\}/);
       if (match) return JSON.parse(match[0]) as T;
     } catch {
       // nothing

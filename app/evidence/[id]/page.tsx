@@ -261,10 +261,56 @@ export default function EvidenceDetailPage() {
 
           <TabsContent value="summary" className="mt-4">
             <Card>
-              <CardContent className="py-4">
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                  {ev.summary}
-                </p>
+              <CardContent className="py-4 space-y-4">
+                {ev.summary && typeof ev.summary === "object" && ev.summary.overview ? (
+                  <>
+                    <div>
+                      <h4 className="text-sm font-semibold text-muted-foreground mb-1">Overview</h4>
+                      <p className="text-sm leading-relaxed">{ev.summary.overview}</p>
+                    </div>
+                    {ev.summary.keyFindings && ev.summary.keyFindings.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-semibold text-muted-foreground mb-1">Key Findings</h4>
+                        <ul className="list-disc list-inside text-sm space-y-1">
+                          {ev.summary.keyFindings.map((finding: string, i: number) => (
+                            <li key={i} className="leading-relaxed">{finding}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {ev.summary.implications && ev.summary.implications.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-semibold text-muted-foreground mb-1">Implications</h4>
+                        <ul className="list-disc list-inside text-sm space-y-1">
+                          {ev.summary.implications.map((imp: string, i: number) => (
+                            <li key={i} className="leading-relaxed">{imp}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {ev.summary.relevance && (
+                      <div>
+                        <h4 className="text-sm font-semibold text-muted-foreground mb-1">Relevance</h4>
+                        <p className="text-sm leading-relaxed">{ev.summary.relevance}</p>
+                      </div>
+                    )}
+                    {typeof ev.summary.confidence === "number" && (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground pt-2 border-t">
+                        <span>AI Confidence:</span>
+                        <span className="font-medium">{(ev.summary.confidence * 100).toFixed(0)}%</span>
+                      </div>
+                    )}
+                  </>
+                ) : ev.summary && typeof ev.summary === "string" && ev.summary.length > 0 ? (
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{ev.summary}</p>
+                ) : ev.content && ev.content.length > 0 ? (
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-2">No AI summary available yet. Content preview:</p>
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{ev.content.slice(0, 2000)}{ev.content.length > 2000 ? "..." : ""}</p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No summary or content available.</p>
+                )}
                 {meta.summaryMethod === "fallback_too_large" && (
                   <p className="mt-3 text-xs text-amber-600 bg-amber-50 p-2 rounded">
                     This document was too large for automatic summarization.

@@ -1,12 +1,10 @@
-/**
- * ATIS v4 — /api/graph
- */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import {
   evidence,
   storyRelationships,
   storyCandidates,
+  storyCandidateEvidence,
   graphClusters,
   narratives,
   facts,
@@ -160,8 +158,30 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         : undefined,
     }));
 
-    // Load clusters
-    const clusterRows = await db.select().from(graphClusters).all();
+    // Load clusters — try graphClusters first, fall back to storyCandidates
+    let clusterRows = await db.select().from(graphClusters).all();
+    if (clusterRows.length === 0) {
+      // Fallback: build clusters from storyCandidates (v4 data)
+      const candidates = await db.select().from(storyCandidates).where(eq(storyCandidates.status, "story")).all();
+      const candidateLinks = await db.select().from(storyCandidateEvidence).all();
+      const linkMap = new Map<number, number[]>();
+      for (const link of candidateLinks) {
+        if (!linkMap.has(link.candidateId)) linkMap.set(link.candidateId, []);
+        linkMap.get(link.candidateId)!.push(link.evidenceId);
+      }
+      clusterRows = candidates.map((c: any) => ({
+        id: c.id,
+        name: c.name || "Unnamed Cluster",
+        description: c.description || "",
+        evidenceIds: JSON.stringify(linkMap.get(c.id) || []),
+        entityIds: "[]",
+        density: c.coherenceScore ?? 0.5,
+        status: c.status || "stable",
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+      }));
+    }
+
     const clusters: GraphCluster[] = clusterRows.map((c) => ({
       id: c.id,
       name: c.name,

@@ -6,6 +6,8 @@ import {
   storyCandidateEvidence,
   narratives,
   graphClusters,
+  stories,
+  storyEvidence,
 } from "@/db/schema";
 import { eq, inArray, desc, count } from "drizzle-orm";
 import { runDiscoveryPipeline } from "@/lib/worker";
@@ -39,30 +41,40 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { title, description, evidenceIds = [] } = body;
 
+    // FIX: Insert into stories table (not storyCandidates) so it appears in /stories
     const result = await db
-      .insert(storyCandidates)
+      .insert(stories)
       .values({
-        name: title || `Manual Story ${Date.now()}`,
-        description: description || null,
-        status: "story",
+        title: title || `Manual Story ${Date.now()}`,
+        overview: description || "",
+        status: "active",
         confidence: 0.5,
-        coherenceScore: 0.5,
+        generationType: "manual",
+        clusterIds: "[]",
+        createdBy: 1, // TODO: use actual user from session
       })
-      .run();
+      .returning()
+      .get();
 
-    const candidateId = Number(result.lastInsertRowid);
+    const storyId = result.id;
 
-    if (evidenceIds.length > 0 && candidateId) {
+    // Link evidence to the new story
+    if (evidenceIds.length > 0 && storyId) {
       for (const eid of evidenceIds) {
         await db
-          .insert(storyCandidateEvidence)
-          .values({ candidateId, evidenceId: eid })
+          .insert(storyEvidence)
+          .values({
+            storyId,
+            evidenceId: eid,
+            confidence: 0.5,
+            relationshipType: "related",
+          })
           .run();
       }
     }
 
     const state = await fetchLatestDiscoveryState();
-    return NextResponse.json({ ...state, createdId: candidateId });
+    return NextResponse.json({ ...state, createdId: storyId });
   } catch (error) {
     console.error("[api/discover] POST failed:", error);
     return NextResponse.json(
@@ -100,7 +112,6 @@ export async function PUT(request: NextRequest) {
 }
 
 async function fetchLatestDiscoveryState() {
-  // Counts — .get() returns the row directly, not a Promise
   const totalEvidenceResult = await db.select({ count: count() }).from(evidence).get();
   const totalEvidence = totalEvidenceResult?.count ?? 0;
 
@@ -113,10 +124,8 @@ async function fetchLatestDiscoveryState() {
   const totalClustersResult = await db.select({ count: count() }).from(graphClusters).get();
   const totalClusters = totalClustersResult?.count ?? 0;
 
-  // Build cluster views
   const clusters = await buildClusterViews();
 
-  // Compute linked vs unlinked
   const linkedEvidenceIds = new Set<number>();
   for (const c of clusters) {
     for (const eid of c.evidenceIds) {
@@ -147,7 +156,6 @@ async function buildClusterViews(): Promise<ClusterView[]> {
 
   if (candidates.length === 0) return [];
 
-  // Fetch all narratives
   const narrativeList = await db.select().from(narratives).all();
   const narrativeMap = new Map<number, (typeof narrativeList)[0]>();
   for (const n of narrativeList) {
@@ -161,7 +169,6 @@ async function buildClusterViews(): Promise<ClusterView[]> {
     }
   }
 
-  // Fetch all candidate-evidence links
   const allLinks = await db.select().from(storyCandidateEvidence).all();
   const evidenceMap = new Map<number, number[]>();
   for (const link of allLinks) {

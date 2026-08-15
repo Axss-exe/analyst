@@ -9,18 +9,20 @@ import {
   timelineEvents,
   entities,
   relationships,
-  researchTasks,
   generatedBriefs,
   graphClusters,
 } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 export async function GET(
   request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    const id = parseInt(params.id);
+    const id = parseInt(params.id, 10);
+    if (isNaN(id)) {
+      return NextResponse.json({ error: "Invalid story ID" }, { status: 400 });
+    }
 
     let [story] = db
       .select()
@@ -145,13 +147,14 @@ export async function GET(
     }
 
     // ─── Relationships ───
+    // FIX: Use LIKE for JSON array containment instead of exact match
     let relationshipList: any[] = [];
     for (const ev of evidenceList) {
       const rows = db
         .select()
         .from(relationships)
         .where(
-          eq(relationships.evidenceIds, JSON.stringify([ev.id]))
+          sql`${relationships.evidenceIds} LIKE ${"%" + ev.id + "%"}`
         )
         .all();
       relationshipList.push(...rows);
@@ -163,15 +166,9 @@ export async function GET(
       return true;
     });
 
-    // ─── Tasks & Briefs (manual only) ───
-    let taskList: any[] = [];
+    // ─── Briefs (manual only) ───
     let briefList: any[] = [];
     if (!isNarrative) {
-      taskList = db
-        .select()
-        .from(researchTasks)
-        .where(eq(researchTasks.storyId, id))
-        .all();
       briefList = db
         .select()
         .from(generatedBriefs)
@@ -186,7 +183,7 @@ export async function GET(
       linkedEntities: entityList,
       timelineEvents: timelineList,
       relationships: relationshipList,
-      researchTasks: taskList,
+      researchTasks: [], // FIX: researchTasks table has no storyId column
       generatedBriefs: briefList,
     });
   } catch (error: any) {
@@ -203,7 +200,10 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    const id = parseInt(params.id);
+    const id = parseInt(params.id, 10);
+    if (isNaN(id)) {
+      return NextResponse.json({ error: "Invalid story ID" }, { status: 400 });
+    }
     const body = await request.json();
 
     db.update(stories)
@@ -229,13 +229,13 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const id = parseInt(params.id);
+    const id = parseInt(params.id, 10);
+    if (isNaN(id)) {
+      return NextResponse.json({ error: "Invalid story ID" }, { status: 400 });
+    }
 
     db.delete(storyEvidence)
       .where(eq(storyEvidence.storyId, id))
-      .run();
-    db.delete(researchTasks)
-      .where(eq(researchTasks.storyId, id))
       .run();
     db.delete(generatedBriefs)
       .where(eq(generatedBriefs.storyId, id))

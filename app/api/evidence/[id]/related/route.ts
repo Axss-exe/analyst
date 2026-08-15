@@ -40,15 +40,13 @@ export async function GET(
     }
 
     // Fetch related evidence details
-    // Drizzle SQLite doesn't have inArray for dynamic arrays easily,
-    // so we fetch all and filter
     const allEvidence = await db
       .select({
         id: evidence.id,
         title: evidence.title,
         source: evidence.source,
         sourceType: evidence.sourceType,
-        date: evidence.date,
+        publicationDate: evidence.publicationDate,
       })
       .from(evidence)
       .all();
@@ -65,7 +63,7 @@ export async function GET(
         title: ev?.title || `Evidence ${rid}`,
         source: ev?.source || null,
         sourceType: ev?.sourceType || null,
-        date: ev?.date || null,
+        date: ev?.publicationDate || null,
         relationshipType: rel?.relationshipType || "related",
         weight: rel?.weight ?? 0,
         confidence: rel?.confidence ?? 0,
