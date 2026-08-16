@@ -5,12 +5,9 @@ import {
   evidence,
   storyEvidence,
   generatedBriefs,
-  notifications,
 } from "@/db/schema";
 import { eq, desc, sql } from "drizzle-orm";
 import { requireAuth } from "@/lib/auth";
-import { createNotification } from "@/lib/notifications";
-import { generateBriefContent } from "@/lib/ai/stories";
 
 export async function GET(request: NextRequest) {
   try {
@@ -50,10 +47,13 @@ export async function POST(request: NextRequest) {
   try {
     const user = await requireAuth();
     const body = await request.json();
-    const { storyId, mode = "full" } = body;
+    const { storyId, mode = "full", templateId } = body;
 
     if (!storyId) {
-      return NextResponse.json({ error: "Story ID required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Story ID required" },
+        { status: 400 },
+      );
     }
 
     const story = db
@@ -62,7 +62,10 @@ export async function POST(request: NextRequest) {
       .where(eq(stories.id, storyId))
       .get();
     if (!story) {
-      return NextResponse.json({ error: "Story not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Story not found" },
+        { status: 404 },
+      );
     }
 
     const linkedEvidence = db
@@ -78,43 +81,83 @@ export async function POST(request: NextRequest) {
       .where(sql`${evidence.id} IN ${evidenceIds}`)
       .all();
 
-    const briefData = await generateBriefContent({
-      storyTitle: story.title,
-      storyOverview: story.overview,
-      evidenceItems: evidenceItems.map((e) => ({
-        title: e.title,
-        summary: e.content?.substring(0, 800) || e.title,
-        source: e.source,
-      })),
-      mode,
-    });
+    // Try to use existing AI brief generator
+    let briefData: any;
+    try {
+      const { generateBriefContent } = await import("@/lib/ai/stories");
+      briefData = await generateBriefContent({
+        storyTitle: story.title,
+        storyOverview: story.overview,
+        evidenceItems: evidenceItems.map((e) => ({
+          title: e.title,
+          summary: (e.content || e.summary || "").substring(0, 800) || e.title,
+          source: e.source,
+        })),
+        mode,
+      });
+    } catch (aiErr) {
+      console.warn("AI brief generation failed, using fallback:", aiErr);
+      const summaries = evidenceItems
+        .map((e) => `- ${e.title}: ${(e.content || e.summary || "").substring(0, 300)}...`)
+        .join("\n\n");
+      briefData = {
+        headline: `Brief: ${story.title}`,
+        executiveSummary: story.overview || "No overview available.",
+        detailedNarrative: `This brief is based on ${evidenceItems.length} evidence items.\n\n${summaries}`,
+        keyFindings: evidenceItems.map((e) => e.title),
+        references: evidenceItems.map((e) => ({ title: e.title, source: e.source })),
+      };
+    }
 
-    const brief = db
+    const contentPayload = {
+      executiveSummary: briefData.executiveSummary || "",
+      detailedNarrative: briefData.detailedNarrative || "",
+      keyFindings: briefData.keyFindings || [],
+      references: briefData.references || [],
+    };
+
+    const result = db
       .insert(generatedBriefs)
       .values({
         storyId,
-        headline: briefData.headline,
-        executiveSummary: briefData.executiveSummary,
-        detailedNarrative: briefData.detailedNarrative,
-        keyFindings: JSON.stringify(briefData.keyFindings),
-        references: JSON.stringify(briefData.references),
-        mode,
+        headline: briefData.headline || `Brief: ${story.title}`,
+        content: JSON.stringify(contentPayload),
+        generationMode: mode,
+        evidenceIds: JSON.stringify(evidenceIds),
+        templateId: templateId || null,
         llmModel: process.env.CEREBRAS_MODEL || "llama3.1-70b",
         createdBy: user.id,
       })
-      .returning()
-      .get();
+      .run();
 
-    await createNotification({
-      userId: user.id,
-      type: "brief_generated",
-      title: "Brief Generated",
-      message: `A new ${mode} brief was generated for "${story.title}"`,
-      relatedObjectType: "brief",
-      relatedObjectId: brief.id,
+    const briefId = Number(result.lastInsertRowid);
+
+    // Create notification (best effort)
+    try {
+      const { createNotification } = await import("@/lib/notifications");
+      await createNotification({
+        userId: user.id,
+        type: "brief_generated",
+        title: "Brief Generated",
+        message: `A new ${mode} brief was generated for "${story.title}"`,
+        relatedObjectType: "brief",
+        relatedObjectId: briefId,
+      });
+    } catch (notifErr) {
+      console.warn("Notification creation failed:", notifErr);
+    }
+
+    return NextResponse.json({
+      success: true,
+      brief: {
+        id: briefId,
+        storyId,
+        headline: briefData.headline,
+        ...contentPayload,
+        mode,
+        createdAt: new Date().toISOString(),
+      },
     });
-
-    return NextResponse.json({ brief });
   } catch (error: any) {
     if (error.message === "Unauthorized")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

@@ -10,12 +10,18 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Loader2,
   Sparkles,
   BookOpen,
   CheckCircle,
   AlertTriangle,
-  Search,
   RefreshCw,
   Link2,
   Plus,
@@ -25,6 +31,10 @@ import {
   GitBranch,
   Lightbulb,
   Target,
+  Newspaper,
+  ChevronDown,
+  ChevronUp,
+  FileOutput,
 } from "lucide-react";
 
 interface StoryData {
@@ -55,6 +65,12 @@ interface GapItem {
   suggestedQuestion: string;
 }
 
+interface TemplateItem {
+  id: number;
+  name: string;
+  type: string;
+}
+
 export default function StoryDetailPage() {
   const params = useParams();
   const id = params.id as string;
@@ -74,6 +90,13 @@ export default function StoryDetailPage() {
   const [attaching, setAttaching] = useState(false);
   const [attachResult, setAttachResult] = useState<any>(null);
 
+  // Brief generation state
+  const [templates, setTemplates] = useState<TemplateItem[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+  const [selectedMode, setSelectedMode] = useState<string>("full");
+  const [generatingBrief, setGeneratingBrief] = useState(false);
+  const [expandedBriefId, setExpandedBriefId] = useState<number | null>(null);
+
   // Check / publish state (narratives only)
   const [checkResult, setCheckResult] = useState<any>(null);
   const [checking, setChecking] = useState(false);
@@ -81,6 +104,7 @@ export default function StoryDetailPage() {
 
   useEffect(() => {
     fetchStory();
+    fetchTemplates();
   }, [id]);
 
   async function fetchStory() {
@@ -95,7 +119,6 @@ export default function StoryDetailPage() {
       const d = await res.json();
       setData(d);
 
-      // If narrative, fetch check result
       if (d.isNarrative) {
         fetch(`/api/narratives/${id}/check`)
           .then((r) => r.json())
@@ -114,6 +137,18 @@ export default function StoryDetailPage() {
     }
   }
 
+  async function fetchTemplates() {
+    try {
+      const res = await fetch("/api/templates");
+      if (res.ok) {
+        const d = await res.json();
+        setTemplates(d.templates || []);
+      }
+    } catch (e) {
+      console.warn("Failed to fetch templates:", e);
+    }
+  }
+
   async function runReevaluate() {
     setReevaluating(true);
     setAttachResult(null);
@@ -126,7 +161,6 @@ export default function StoryDetailPage() {
         setGaps(d.gaps || []);
         setGapSummary(d.gapSummary || null);
         setTasksGenerated(d.tasksGenerated || 0);
-        // Refresh story data to get new tasks
         await fetchStory();
       } else {
         alert(d.error || "Re-evaluation failed");
@@ -161,6 +195,31 @@ export default function StoryDetailPage() {
       alert(e.message || "Attachment failed");
     } finally {
       setAttaching(false);
+    }
+  }
+
+  async function handleGenerateBrief() {
+    setGeneratingBrief(true);
+    try {
+      const res = await fetch("/api/briefs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storyId: parseInt(id),
+          mode: selectedMode,
+          templateId: selectedTemplateId ? parseInt(selectedTemplateId) : undefined,
+        }),
+      });
+      const d = await res.json();
+      if (d.success) {
+        await fetchStory();
+      } else {
+        alert(d.error || "Brief generation failed");
+      }
+    } catch (e: any) {
+      alert(e.message || "Brief generation failed");
+    } finally {
+      setGeneratingBrief(false);
     }
   }
 
@@ -249,6 +308,14 @@ export default function StoryDetailPage() {
     medium: "bg-blue-500/10 text-blue-400 border-blue-500/20",
     low: "bg-slate-500/10 text-slate-400 border-slate-500/20",
   };
+
+  function parseBriefContent(content: string): any {
+    try {
+      return JSON.parse(content);
+    } catch {
+      return { executiveSummary: content, detailedNarrative: "", keyFindings: [], references: [] };
+    }
+  }
 
   return (
     <AppShell>
@@ -495,6 +562,10 @@ export default function StoryDetailPage() {
               <Target className="h-3.5 w-3.5 mr-1" />
               Tasks ({taskList.length})
             </TabsTrigger>
+            <TabsTrigger value="briefs">
+              <Newspaper className="h-3.5 w-3.5 mr-1" />
+              Briefs ({briefList.length})
+            </TabsTrigger>
             <TabsTrigger value="gaps">
               <Lightbulb className="h-3.5 w-3.5 mr-1" />
               Gaps
@@ -681,6 +752,155 @@ export default function StoryDetailPage() {
                     </CardContent>
                   </Card>
                 ))}
+              </div>
+            )}
+          </TabsContent>
+
+          {/* Briefs Tab */}
+          <TabsContent value="briefs" className="mt-4 space-y-4">
+            {/* Generate Brief Controls */}
+            <Card>
+              <CardContent className="py-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                  <FileOutput className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="text-sm font-medium shrink-0">Generate Brief</span>
+
+                  <Select value={selectedMode} onValueChange={setSelectedMode}>
+                    <SelectTrigger className="w-[140px] h-8 text-xs">
+                      <SelectValue placeholder="Mode" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="full">Full</SelectItem>
+                      <SelectItem value="partial">Partial</SelectItem>
+                      <SelectItem value="since_last">Since Last</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+                    <SelectTrigger className="w-[180px] h-8 text-xs">
+                      <SelectValue placeholder="Template (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">No template</SelectItem>
+                      {templates.map((t) => (
+                        <SelectItem key={t.id} value={String(t.id)}>
+                          {t.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Button
+                    size="sm"
+                    onClick={handleGenerateBrief}
+                    disabled={generatingBrief || evidenceList.length === 0}
+                  >
+                    {generatingBrief ? (
+                      <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                    ) : (
+                      <Newspaper className="h-3 w-3 mr-1" />
+                    )}
+                    Generate
+                  </Button>
+                </div>
+                {evidenceList.length === 0 && (
+                  <p className="text-xs text-muted-foreground mt-2 ml-7">
+                    Attach evidence before generating a brief.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Briefs List */}
+            {briefList.length === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center">
+                  <Newspaper className="h-8 w-8 text-muted-foreground opacity-40 mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground">No briefs generated yet</p>
+                  <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
+                    Select a mode and template, then click Generate to create a brief from this story's evidence.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {briefList.map((brief: any) => {
+                  const parsed = parseBriefContent(brief.content);
+                  const isExpanded = expandedBriefId === brief.id;
+                  return (
+                    <Card key={brief.id}>
+                      <CardContent className="py-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium">{brief.headline}</p>
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                              <Badge variant="outline" className="text-[10px] capitalize">
+                                {brief.generationMode || brief.mode || "full"}
+                              </Badge>
+                              <span className="text-[10px] text-muted-foreground">
+                                {brief.createdAt ? new Date(brief.createdAt).toLocaleDateString() : ""}
+                              </span>
+                              {brief.llmModel && (
+                                <span className="text-[10px] text-muted-foreground">
+                                  {brief.llmModel}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0"
+                            onClick={() => setExpandedBriefId(isExpanded ? null : brief.id)}
+                          >
+                            {isExpanded ? (
+                              <ChevronUp className="h-4 w-4" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </div>
+
+                        {isExpanded && (
+                          <div className="mt-3 space-y-3 text-xs border-t border-border pt-3">
+                            {parsed.executiveSummary && (
+                              <div>
+                                <p className="font-medium text-muted-foreground mb-1">Executive Summary</p>
+                                <p className="leading-relaxed">{parsed.executiveSummary}</p>
+                              </div>
+                            )}
+                            {parsed.detailedNarrative && (
+                              <div>
+                                <p className="font-medium text-muted-foreground mb-1">Detailed Narrative</p>
+                                <p className="leading-relaxed whitespace-pre-wrap">{parsed.detailedNarrative}</p>
+                              </div>
+                            )}
+                            {parsed.keyFindings && parsed.keyFindings.length > 0 && (
+                              <div>
+                                <p className="font-medium text-muted-foreground mb-1">Key Findings</p>
+                                <ul className="list-disc list-inside space-y-0.5">
+                                  {parsed.keyFindings.map((kf: string, i: number) => (
+                                    <li key={i}>{kf}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {parsed.references && parsed.references.length > 0 && (
+                              <div>
+                                <p className="font-medium text-muted-foreground mb-1">References</p>
+                                <ul className="list-disc list-inside space-y-0.5">
+                                  {parsed.references.map((ref: any, i: number) => (
+                                    <li key={i}>{ref.title || ref} {ref.source ? `(${ref.source})` : ""}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             )}
           </TabsContent>
