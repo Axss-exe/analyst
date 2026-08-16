@@ -188,6 +188,7 @@ export const timelineEvents = sqliteTable(
   }),
 );
 
+// ==================== MODIFIED: researchTasks now has storyId ====================
 export const researchTasks = sqliteTable(
   "research_tasks",
   {
@@ -206,6 +207,7 @@ export const researchTasks = sqliteTable(
       .notNull()
       .default("open"),
     completionNotes: text("completion_notes"),
+    storyId: integer("story_id").references(() => stories.id, { onDelete: "set null" }),
     createdBy: integer("created_by")
       .notNull()
       .references(() => users.id),
@@ -217,6 +219,7 @@ export const researchTasks = sqliteTable(
     tasksOwnerIdx: index("tasks_owner_idx").on(t.ownerId),
     tasksStatusIdx: index("tasks_status_idx").on(t.status),
     tasksPriorityIdx: index("tasks_priority_idx").on(t.priority),
+    tasksStoryIdx: index("tasks_story_idx").on(t.storyId),
   }),
 );
 
@@ -775,7 +778,9 @@ export const storyRelationships = sqliteTable(
     confidence: real("confidence").notNull().default(0.5),
     explicit: integer("explicit", { mode: "boolean" }).notNull().default(true),
     reason: text("reason"),
-    createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
   },
   (t) => ({
     storyRelUniqueIdx: uniqueIndex("story_rel_unique_idx").on(
@@ -800,7 +805,9 @@ export const storyCandidateEvidence = sqliteTable(
       .references(() => evidence.id, { onDelete: "cascade" }),
     role: text("role").notNull().default("member"),
     attachmentReason: text("attachment_reason"),
-    createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
   },
   (t) => ({
     sceUniqueIdx: uniqueIndex("sce_unique_idx").on(t.storyCandidateId, t.evidenceId),

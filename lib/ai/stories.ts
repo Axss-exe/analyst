@@ -153,28 +153,52 @@ Only output valid JSON. No markdown, no explanations.`;
   });
 
   try {
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
+    // Try to extract JSON from markdown code blocks first
+    let jsonText = response;
+
+    const codeBlockMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (codeBlockMatch) {
+      jsonText = codeBlockMatch[1].trim();
+    } else {
+      // Fallback: find the outermost JSON object
+      const firstBrace = response.indexOf("{");
+      const lastBrace = response.lastIndexOf("}");
+      if (firstBrace >= 0 && lastBrace > firstBrace) {
+        jsonText = response.slice(firstBrace, lastBrace + 1);
+      }
     }
+
+    // Clean common LLM artifacts
+    jsonText = jsonText
+      .replace(/^[^{]*/, "")   // Remove leading text before {
+      .replace(/[^}]*$/, "")   // Remove trailing text after }
+      .replace(/^\s*\/\/.*$/gm, "")  // Remove line comments
+      .trim();
+
+    const parsed = JSON.parse(jsonText);
+
+    // Validate required fields
     return {
-      headline: params.storyTitle,
-      executiveSummary: response.slice(0, 500),
-      detailedNarrative: response,
-      keyFindings: ["Evidence-based finding pending review"],
-      references: params.evidenceItems.map(
-        (e, i) => `[${i + 1}] ${e.title} - ${e.source}`,
-      ),
+      headline: parsed.headline || params.storyTitle,
+      executiveSummary: parsed.executiveSummary || parsed.summary || response.slice(0, 500),
+      detailedNarrative: parsed.detailedNarrative || parsed.narrative || response,
+      keyFindings: Array.isArray(parsed.keyFindings) ? parsed.keyFindings : ["Evidence-based finding pending review"],
+      references: Array.isArray(parsed.references) ? parsed.references : params.evidenceItems.map((e, i) => `[${i + 1}] ${e.title} - ${e.source}`),
     };
-  } catch {
+  } catch (parseErr: any) {
+    console.error("[generateBriefContent] JSON parse failed:", parseErr.message);
+    console.error("[generateBriefContent] Raw response:", response.slice(0, 1000));
+
+    // Graceful fallback: structure the raw response
+    const lines = response.split("\n").filter((l) => l.trim());
+    const headline = lines.find((l) => l.length < 120 && !l.startsWith("{")) || params.storyTitle;
+
     return {
-      headline: params.storyTitle,
-      executiveSummary: response.slice(0, 500),
+      headline: headline,
+      executiveSummary: response.slice(0, 800),
       detailedNarrative: response,
-      keyFindings: ["Evidence-based finding pending review"],
-      references: params.evidenceItems.map(
-        (e, i) => `[${i + 1}] ${e.title} - ${e.source}`,
-      ),
+      keyFindings: ["Evidence-based finding pending review — raw response attached"],
+      references: params.evidenceItems.map((e, i) => `[${i + 1}] ${e.title} - ${e.source}`),
     };
   }
 }

@@ -1,5 +1,5 @@
 /**
- * ATIS v4 — Background Worker Pipeline (FULLY FIXED)
+ * ATIS v4 — Background Worker Pipeline (FULLY FIXED + STORY CONTINUITY)
  *
  * Fixes applied:
  * 1. Added enqueueEvidenceJob() for direct calling from import route
@@ -14,6 +14,7 @@
  * 10. ADDED: storeTimelineEvents — extracts dates and creates timeline_events
  * 11. ADDED: createGraphEdges — populates story_graph_edges from relationships
  * 12. FIXED: generateNarrativesForValidatedStories has robust fallback without @/lib/ai/stories
+ * 13. ADDED: Stage 7b — matchEvidenceToExistingStories for story continuity
  */
 import { generateEvidenceSummary, serializeSummary } from "@/lib/ai/summaries";
 import { db } from "@/db";
@@ -68,7 +69,7 @@ export interface WorkerJob {
 export function enqueueEvidenceJob(
   evidenceId: number,
   text: string,
-  userId: number
+  userId: number,
 ): void {
   console.log("[WORKER] enqueueEvidenceJob called for evidence", evidenceId);
 
@@ -96,7 +97,7 @@ export function enqueueEvidenceJob(
 export async function processEvidenceJob(
   job: WorkerJob,
   fallbackText?: string,
-  fallbackUserId?: number
+  fallbackUserId?: number,
 ): Promise<void> {
   const startTime = Date.now();
   console.log(`[worker] ════════════════════════════════════════════════`);
@@ -221,6 +222,24 @@ export async function processEvidenceJob(
       console.error(`[worker] Graph rebuild failed (non-fatal):`, graphErr);
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // NEW: Stage 7b — Match new evidence to existing stories
+    // ═══════════════════════════════════════════════════════════════
+    updateStage({ job, stage: "story_matching", progress: 65 });
+    try {
+      const { matchEvidenceToExistingStories } = await import("@/lib/story-matcher");
+      const matches = await matchEvidenceToExistingStories(job.evidenceId);
+      if (matches.length > 0) {
+        console.log(`[worker] Evidence ${job.evidenceId} matched to ${matches.length} existing story(s):`,
+          matches.map((m) => `Story #${m.storyId} (score: ${m.score.toFixed(2)})`).join(", ")
+        );
+      } else {
+        console.log(`[worker] Evidence ${job.evidenceId} did not match any existing active stories`);
+      }
+    } catch (matchErr) {
+      console.warn(`[worker] Story matching failed (non-fatal):`, matchErr);
+    }
+
     // ── Stage 8: Generate narratives ───────────────────────────
     updateStage({ job, stage: "generate_narratives", progress: 85 });
     try {
@@ -256,7 +275,7 @@ function updateStage({ job, stage, progress }: { job: WorkerJob; stage: string; 
 
 async function storeFacts(
   factsList: Array<{ subject: string; predicate: string; object: string; evidenceId: number; confidence: number }>,
-  evidenceId: number
+  evidenceId: number,
 ): Promise<void> {
   if (!factsList || factsList.length === 0) return;
 
@@ -284,7 +303,7 @@ async function storeFacts(
 
 async function storeEntities(
   entitiesList: Array<{ name: string; type: string; mentions?: number; context?: string }>,
-  evidenceId: number
+  evidenceId: number,
 ): Promise<void> {
   if (!entitiesList || entitiesList.length === 0) return;
 
@@ -335,7 +354,6 @@ async function storeEntities(
 
   console.log(`[worker] Entities: ${success} processed (${success - deduped} new, ${deduped} existing), ${linked} linked to evidence ${evidenceId}`);
 }
-
 
 // ═════════════════════════════════════════════════════════════════
 // NEW: CREATE ENTITY RELATIONSHIPS FROM FACTS
@@ -395,7 +413,7 @@ async function createRelationshipsFromFacts(evidenceId: number): Promise<void> {
     return name
       .toLowerCase()
       .replace(/[^\w\s]/g, " ")
-      .replace(/(the|a|an|of|for|and|&|limited|ltd|inc|corp|corporation|company|co|plc|group)/g, " ")
+      .replace(/\b(the|a|an|of|for|and|&|limited|ltd|inc|corp|corporation|company|co|plc|group)\b/g, " ")
       .replace(/\s+/g, " ")
       .trim();
   }
@@ -536,7 +554,6 @@ async function createRelationshipsFromFacts(evidenceId: number): Promise<void> {
   );
 }
 
-
 async function storeTimelineEvents(evidenceId: number, text: string, title: string): Promise<void> {
   console.log(`[worker] Extracting timeline events for E${evidenceId}`);
 
@@ -580,7 +597,7 @@ async function storeTimelineEvents(evidenceId: number, text: string, title: stri
         if (quarterMatch) {
           const q = quarterMatch[0];
           const year = q.match(/\d{4}/)?.[0];
-          const qNum = q.match(/Q([1-4])/)?.[1];
+          const qNum = q.match(/Q(\d)/)?.[1];
           if (year && qNum) {
             const month = (parseInt(qNum) - 1) * 3 + 1;
             dateStr = `${year}-${month.toString().padStart(2, "0")}-01`;
@@ -631,14 +648,13 @@ async function storeTimelineEvents(evidenceId: number, text: string, title: stri
   console.log(`[worker] Stored ${stored} timeline events for E${evidenceId}`);
 }
 
-
 // ═════════════════════════════════════════════════════════════════
 // INTELLIGENCE NODE STORAGE
 // ═════════════════════════════════════════════════════════════════
 
 async function storeIntelligenceNodes(
   intelligence: any,
-  evidenceId: number
+  evidenceId: number,
 ): Promise<{
   programIds: number[];
   eventIds: number[];
@@ -817,7 +833,7 @@ async function storeIntelligenceNodes(
 
 async function storeSingleDocumentAssessment(
   evidenceId: number,
-  assessment: any
+  assessment: any,
 ): Promise<void> {
   if (!assessment) return;
 
@@ -893,7 +909,6 @@ async function rebuildStoryGraph(allEvidenceIds: number[]): Promise<void> {
     throw err;
   }
 }
-
 
 async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
   console.log(`[worker] Building simple story graph for ${allEvidenceIds.length} evidence items...`);
@@ -1101,7 +1116,7 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
       const ev = db.select({ title: evidence.title }).from(evidence).where(eq(evidence.id, eid)).get();
       return ev?.title || `Evidence ${eid}`;
     });
-    return `Auto-discovered story from ${component.length} related evidence items: ${evTitles.map((t) => `\"${t.substring(0, 60)}...\"`).join(", ")}`;
+    return `Auto-discovered story from ${component.length} related evidence items: ${evTitles.map((t) => `"${t.substring(0, 60)}..."`).join(", ")}`;
   }
 
   let storyCount = 0;
@@ -1155,7 +1170,8 @@ async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
         }
       }
     }
-if (candidateId) {
+
+    if (candidateId) {
       console.log(`[worker] Reusing existing candidate ${candidateId} for component [${component.join(",")}]`);
     } else {
       const candResult = db.insert(storyCandidates).values({
@@ -1257,7 +1273,6 @@ if (candidateId) {
 
   console.log(`[worker] Created ${storyCount} stories and ${candidateCount} candidates total`);
 }
-
 
 async function loadIntelligenceMap(evidenceIds: number[]): Promise<Map<number, any>> {
   const map = new Map<number, any>();
@@ -1538,7 +1553,7 @@ export async function runDiscoveryPipeline(): Promise<{ success: boolean; messag
     await rebuildStoryGraph(allEvidenceIds);
     await generateNarrativesForValidatedStories();
 
-    const candidateCount = (db.select({ count: sql<number>`COUNT(*)` }).from(storyCandidates).get() as any)?.count || 0;
+    const candidateCount = (db.select({ count: sql`COUNT(*)` }).from(storyCandidates).get() as any)?.count || 0;
 
     return {
       success: true,

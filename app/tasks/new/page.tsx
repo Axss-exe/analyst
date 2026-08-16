@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,18 @@ export default function NewTaskPage() {
   const [users, setUsers] = useState<Array<{ id: number; name: string }>>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [storyContext, setStoryContext] = useState<any>(null);
+  const searchParams = useSearchParams();
+  const storyId = searchParams.get("storyId");
+
+  useEffect(() => {
+    if (storyId) {
+      fetch(`/api/stories/${storyId}`)
+        .then((r) => r.json())
+        .then((d) => setStoryContext(d.story || null))
+        .catch(() => {});
+    }
+  }, [storyId]);
 
   useEffect(() => {
     fetch("/api/admin/users")
@@ -40,6 +52,27 @@ export default function NewTaskPage() {
     setError("");
     setLoading(true);
     try {
+      // If linked to a story, fetch its evidence to auto-attach
+      let evidenceIds: number[] = [];
+      let entityIds: number[] = [];
+      if (storyId) {
+        try {
+          const storyRes = await fetch(`/api/stories/${storyId}`);
+          const storyData = await storyRes.json();
+          evidenceIds = (storyData.evidence || []).map((e: any) => e.id);
+          // Collect unique entities from evidence
+          const allEntities = new Set<number>();
+          for (const ev of storyData.evidence || []) {
+            if (ev.entities) {
+              for (const ent of ev.entities) allEntities.add(ent.id);
+            }
+          }
+          entityIds = Array.from(allEntities);
+        } catch {
+          // ignore fetch errors
+        }
+      }
+
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -48,6 +81,8 @@ export default function NewTaskPage() {
           priority,
           ownerId: parseInt(ownerId),
           deadline: deadline || null,
+          evidenceIds: evidenceIds.length > 0 ? evidenceIds : undefined,
+          entityIds: entityIds.length > 0 ? entityIds : undefined,
         }),
       });
       const data = await res.json();
@@ -71,6 +106,15 @@ export default function NewTaskPage() {
             <ArrowLeft className="mr-1 h-4 w-4" /> Back
           </Button>
         </Link>
+        {storyContext && (
+          <Card className="border-l-4 border-l-blue-500">
+            <CardContent className="py-3">
+              <p className="text-xs text-muted-foreground uppercase tracking-wide">Linked Story</p>
+              <p className="font-medium">{storyContext.title}</p>
+              <p className="text-xs text-muted-foreground line-clamp-2">{storyContext.overview}</p>
+            </CardContent>
+          </Card>
+        )}
         <Card>
           <CardHeader>
             <CardTitle>Create Research Task</CardTitle>

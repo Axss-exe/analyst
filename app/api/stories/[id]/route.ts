@@ -11,12 +11,13 @@ import {
   relationships,
   generatedBriefs,
   graphClusters,
+  researchTasks,
 } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
   try {
     const id = parseInt(params.id, 10);
@@ -57,7 +58,7 @@ export async function GET(
     if (!story) {
       return NextResponse.json(
         { error: "Story not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -119,7 +120,7 @@ export async function GET(
         .all();
       timelineList.push(...rows);
     }
-    const seenTl = new Set<number>();
+    const seenTl = new Set();
     timelineList = timelineList.filter((t) => {
       if (seenTl.has(t.id)) return false;
       seenTl.add(t.id);
@@ -147,19 +148,18 @@ export async function GET(
     }
 
     // ─── Relationships ───
-    // FIX: Use LIKE for JSON array containment instead of exact match
     let relationshipList: any[] = [];
     for (const ev of evidenceList) {
       const rows = db
         .select()
         .from(relationships)
         .where(
-          sql`${relationships.evidenceIds} LIKE ${"%" + ev.id + "%"}`
+          sql`${relationships.evidenceIds} LIKE ${"%" + ev.id + "%"}`,
         )
         .all();
       relationshipList.push(...rows);
     }
-    const seenRel = new Set<number>();
+    const seenRel = new Set();
     relationshipList = relationshipList.filter((r) => {
       if (seenRel.has(r.id)) return false;
       seenRel.add(r.id);
@@ -176,6 +176,17 @@ export async function GET(
         .all();
     }
 
+    // ─── Research Tasks (NEW: story continuity) ───
+    let taskList: any[] = [];
+    if (!isNarrative) {
+      taskList = db
+        .select()
+        .from(researchTasks)
+        .where(eq(researchTasks.storyId, id))
+        .orderBy(researchTasks.priority)
+        .all();
+    }
+
     return NextResponse.json({
       story,
       isNarrative,
@@ -183,21 +194,21 @@ export async function GET(
       linkedEntities: entityList,
       timelineEvents: timelineList,
       relationships: relationshipList,
-      researchTasks: [], // FIX: researchTasks table has no storyId column
+      researchTasks: taskList,
       generatedBriefs: briefList,
     });
   } catch (error: any) {
     console.error("Get story error:", error);
     return NextResponse.json(
       { error: "Failed to fetch story" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
   try {
     const id = parseInt(params.id, 10);
@@ -219,14 +230,14 @@ export async function PATCH(
     console.error("Patch story error:", error);
     return NextResponse.json(
       { error: "Failed to update story" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
   try {
     const id = parseInt(params.id, 10);
@@ -240,6 +251,9 @@ export async function DELETE(
     db.delete(generatedBriefs)
       .where(eq(generatedBriefs.storyId, id))
       .run();
+    db.delete(researchTasks)
+      .where(eq(researchTasks.storyId, id))
+      .run();
     db.delete(stories)
       .where(eq(stories.id, id))
       .run();
@@ -249,7 +263,7 @@ export async function DELETE(
     console.error("Delete story error:", error);
     return NextResponse.json(
       { error: "Failed to delete story" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
