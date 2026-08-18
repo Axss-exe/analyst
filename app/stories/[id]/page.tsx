@@ -10,13 +10,6 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Loader2,
   Sparkles,
   BookOpen,
@@ -79,25 +72,21 @@ export default function StoryDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Re-evaluation state
   const [reevaluating, setReevaluating] = useState(false);
   const [gaps, setGaps] = useState<GapItem[] | null>(null);
   const [gapSummary, setGapSummary] = useState<any>(null);
   const [tasksGenerated, setTasksGenerated] = useState(0);
 
-  // Attach evidence state
   const [attachInput, setAttachInput] = useState("");
   const [attaching, setAttaching] = useState(false);
   const [attachResult, setAttachResult] = useState<any>(null);
 
-  // Brief generation state
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
   const [selectedMode, setSelectedMode] = useState<string>("full");
   const [generatingBrief, setGeneratingBrief] = useState(false);
   const [expandedBriefId, setExpandedBriefId] = useState<number | null>(null);
 
-  // Check / publish state (narratives only)
   const [checkResult, setCheckResult] = useState<any>(null);
   const [checking, setChecking] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -118,7 +107,6 @@ export default function StoryDetailPage() {
       }
       const d = await res.json();
       setData(d);
-
       if (d.isNarrative) {
         fetch(`/api/narratives/${id}/check`)
           .then((r) => r.json())
@@ -153,9 +141,7 @@ export default function StoryDetailPage() {
     setReevaluating(true);
     setAttachResult(null);
     try {
-      const res = await fetch(`/api/stories/${id}/reevaluate`, {
-        method: "POST",
-      });
+      const res = await fetch(`/api/stories/${id}/reevaluate`, { method: "POST" });
       const d = await res.json();
       if (d.success) {
         setGaps(d.gaps || []);
@@ -226,9 +212,7 @@ export default function StoryDetailPage() {
   async function runCheck() {
     setChecking(true);
     try {
-      const res = await fetch(`/api/narratives/${id}/check`, {
-        method: "POST",
-      });
+      const res = await fetch(`/api/narratives/${id}/check`, { method: "POST" });
       const d = await res.json();
       if (d.success) {
         d.issues = parseIssues(d.issues);
@@ -246,9 +230,7 @@ export default function StoryDetailPage() {
   async function publishNarrative() {
     setPublishing(true);
     try {
-      const res = await fetch(`/api/narratives/${id}/publish`, {
-        method: "POST",
-      });
+      const res = await fetch(`/api/narratives/${id}/publish`, { method: "POST" });
       const d = await res.json();
       if (d.success) {
         window.location.reload();
@@ -313,7 +295,12 @@ export default function StoryDetailPage() {
     try {
       return JSON.parse(content);
     } catch {
-      return { executiveSummary: content, detailedNarrative: "", keyFindings: [], references: [] };
+      return {
+        executiveSummary: content,
+        detailedNarrative: "",
+        keyFindings: [],
+        references: [],
+      };
     }
   }
 
@@ -351,7 +338,7 @@ export default function StoryDetailPage() {
             ) : null}
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
             {!isNarrative && (
               <Button
                 variant="outline"
@@ -367,6 +354,42 @@ export default function StoryDetailPage() {
                 Re-evaluate
               </Button>
             )}
+
+            {/* Generate Brief - always visible in header */}
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedMode}
+                onChange={(e) => setSelectedMode(e.target.value)}
+                className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+              >
+                <option value="full">Full</option>
+                <option value="partial">Partial</option>
+                <option value="since_last">Since Last</option>
+              </select>
+              <select
+                value={selectedTemplateId}
+                onChange={(e) => setSelectedTemplateId(e.target.value)}
+                className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+              >
+                <option value="">No template</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={String(t.id)}>{t.name}</option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                onClick={handleGenerateBrief}
+                disabled={generatingBrief || evidenceList.length === 0}
+              >
+                {generatingBrief ? (
+                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                ) : (
+                  <Newspaper className="h-3 w-3 mr-1" />
+                )}
+                Brief
+              </Button>
+            </div>
+
             {isNarrative && story.status === "draft" && checkResult?.status === "passed" && (
               <Button size="sm" onClick={publishNarrative} disabled={publishing}>
                 {publishing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <CheckCircle className="h-4 w-4 mr-1" />}
@@ -376,7 +399,7 @@ export default function StoryDetailPage() {
           </div>
         </div>
 
-        {/* ─── Narrative Checker (narratives only) ─── */}
+        {/* ─── Narrative Checker ─── */}
         {isNarrative && (
           <Card>
             <CardHeader className="pb-3">
@@ -398,16 +421,10 @@ export default function StoryDetailPage() {
                 ) : (
                   <Badge variant="outline">Not checked</Badge>
                 )}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={runCheck}
-                  disabled={checking}
-                >
+                <Button size="sm" variant="ghost" onClick={runCheck} disabled={checking}>
                   {checking ? <Loader2 className="h-3 w-3 animate-spin" /> : "Run Check"}
                 </Button>
               </div>
-
               {checkResult && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                   <div className="rounded-md bg-muted p-2 text-center">
@@ -419,15 +436,11 @@ export default function StoryDetailPage() {
                     <p className="text-muted-foreground">Evidence Links</p>
                   </div>
                   <div className="rounded-md bg-muted p-2 text-center">
-                    <p className="text-lg font-semibold">
-                      {Math.round((checkResult.entityOverlapScore || 0) * 100)}%
-                    </p>
+                    <p className="text-lg font-semibold">{Math.round((checkResult.entityOverlapScore || 0) * 100)}%</p>
                     <p className="text-muted-foreground">Entity Overlap</p>
                   </div>
                   <div className="rounded-md bg-muted p-2 text-center">
-                    <p className="text-lg font-semibold">
-                      {Math.round((checkResult.factSupportRatio || 0) * 100)}%
-                    </p>
+                    <p className="text-lg font-semibold">{Math.round((checkResult.factSupportRatio || 0) * 100)}%</p>
                     <p className="text-muted-foreground">Fact Support</p>
                   </div>
                 </div>
@@ -436,7 +449,7 @@ export default function StoryDetailPage() {
           </Card>
         )}
 
-        {/* ─── Attach Evidence (manual stories) ─── */}
+        {/* ─── Attach Evidence ─── */}
         {!isNarrative && (
           <Card>
             <CardContent className="py-4">
@@ -454,11 +467,7 @@ export default function StoryDetailPage() {
                   onClick={handleAttachEvidence}
                   disabled={attaching || !attachInput}
                 >
-                  {attaching ? (
-                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                  ) : (
-                    <Plus className="h-3 w-3 mr-1" />
-                  )}
+                  {attaching ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Plus className="h-3 w-3 mr-1" />}
                   Attach
                 </Button>
                 {attachResult?.success && (
@@ -479,7 +488,7 @@ export default function StoryDetailPage() {
           </Card>
         )}
 
-        {/* ─── Re-evaluation Results ─── */}
+        {/* ─── Gap Results ─── */}
         {gaps && gaps.length > 0 && (
           <Card className="border-amber-500/20">
             <CardHeader className="pb-3">
@@ -497,37 +506,24 @@ export default function StoryDetailPage() {
               {gapSummary && (
                 <div className="flex gap-2 text-xs">
                   {gapSummary.critical > 0 && (
-                    <Badge className="bg-red-500/10 text-red-400 border-red-500/20">
-                      {gapSummary.critical} Critical
-                    </Badge>
+                    <Badge className="bg-red-500/10 text-red-400 border-red-500/20">{gapSummary.critical} Critical</Badge>
                   )}
                   {gapSummary.high > 0 && (
-                    <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/20">
-                      {gapSummary.high} High
-                    </Badge>
+                    <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/20">{gapSummary.high} High</Badge>
                   )}
                   {gapSummary.medium > 0 && (
-                    <Badge className="bg-blue-500/10 text-blue-400 border-blue-500/20">
-                      {gapSummary.medium} Medium
-                    </Badge>
+                    <Badge className="bg-blue-500/10 text-blue-400 border-blue-500/20">{gapSummary.medium} Medium</Badge>
                   )}
                   {gapSummary.low > 0 && (
-                    <Badge className="bg-slate-500/10 text-slate-400 border-slate-500/20">
-                      {gapSummary.low} Low
-                    </Badge>
+                    <Badge className="bg-slate-500/10 text-slate-400 border-slate-500/20">{gapSummary.low} Low</Badge>
                   )}
                 </div>
               )}
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {gaps.map((gap, i) => (
-                  <div
-                    key={i}
-                    className="rounded-md border border-border bg-card p-3 text-xs"
-                  >
+                  <div key={i} className="rounded-md border border-border bg-card p-3 text-xs">
                     <div className="flex items-center gap-2 mb-1">
-                      <Badge className={severityColors[gap.severity] || ""}>
-                        {gap.severity}
-                      </Badge>
+                      <Badge className={severityColors[gap.severity] || ""}>{gap.severity}</Badge>
                       <span className="font-medium capitalize">{gap.type.replace("_", " ")}</span>
                     </div>
                     <p className="text-muted-foreground">{gap.description}</p>
@@ -572,7 +568,7 @@ export default function StoryDetailPage() {
             </TabsTrigger>
           </TabsList>
 
-          {/* Evidence Tab */}
+          {/* Evidence */}
           <TabsContent value="evidence" className="mt-4">
             {evidenceList.length === 0 ? (
               <Card>
@@ -585,15 +581,10 @@ export default function StoryDetailPage() {
                 {evidenceList.map((ev: any) => (
                   <Card key={ev.id} className="hover:bg-accent/50 transition-colors">
                     <CardContent className="py-3">
-                      <Link
-                        href={`/evidence/${ev.id}`}
-                        className="text-sm font-medium hover:text-primary transition-colors"
-                      >
+                      <Link href={`/evidence/${ev.id}`} className="text-sm font-medium hover:text-primary transition-colors">
                         {ev.title || "Untitled"}
                       </Link>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {ev.source}
-                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{ev.source}</p>
                     </CardContent>
                   </Card>
                 ))}
@@ -601,7 +592,7 @@ export default function StoryDetailPage() {
             )}
           </TabsContent>
 
-          {/* Entities Tab */}
+          {/* Entities */}
           <TabsContent value="entities" className="mt-4">
             {entityList.length === 0 ? (
               <Card>
@@ -615,19 +606,12 @@ export default function StoryDetailPage() {
                   <Card key={ent.id} className="hover:bg-accent/50 transition-colors">
                     <CardContent className="py-3 flex items-center justify-between">
                       <div>
-                        <Link
-                          href={`/entities/${ent.id}`}
-                          className="text-sm font-medium hover:text-primary transition-colors"
-                        >
+                        <Link href={`/entities/${ent.id}`} className="text-sm font-medium hover:text-primary transition-colors">
                           {ent.name || "Unknown"}
                         </Link>
-                        <p className="text-xs text-muted-foreground capitalize">
-                          {ent.type || "unknown"}
-                        </p>
+                        <p className="text-xs text-muted-foreground capitalize">{ent.type || "unknown"}</p>
                       </div>
-                      <Badge variant="outline" className="text-[10px] capitalize">
-                        {ent.type}
-                      </Badge>
+                      <Badge variant="outline" className="text-[10px] capitalize">{ent.type}</Badge>
                     </CardContent>
                   </Card>
                 ))}
@@ -635,7 +619,7 @@ export default function StoryDetailPage() {
             )}
           </TabsContent>
 
-          {/* Timeline Tab */}
+          {/* Timeline */}
           <TabsContent value="timeline" className="mt-4">
             {timelineList.length === 0 ? (
               <Card>
@@ -654,14 +638,8 @@ export default function StoryDetailPage() {
                           {evt.date ? new Date(evt.date).toLocaleDateString() : "No date"}
                         </span>
                       </div>
-                      <p className="text-sm font-medium">
-                        {evt.title || evt.event || "Event"}
-                      </p>
-                      {evt.description ? (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {evt.description}
-                        </p>
-                      ) : null}
+                      <p className="text-sm font-medium">{evt.title || evt.event || "Event"}</p>
+                      {evt.description ? <p className="text-xs text-muted-foreground mt-1">{evt.description}</p> : null}
                     </CardContent>
                   </Card>
                 ))}
@@ -669,7 +647,7 @@ export default function StoryDetailPage() {
             )}
           </TabsContent>
 
-          {/* Relations Tab */}
+          {/* Relations */}
           <TabsContent value="relations" className="mt-4">
             {relationshipList.length === 0 ? (
               <Card>
@@ -683,20 +661,12 @@ export default function StoryDetailPage() {
                   <Card key={rel.id}>
                     <CardContent className="py-3 flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium">
-                          {rel.sourceId ? `Entity #${rel.sourceId}` : "?"}
-                        </span>
-                        <Badge variant="outline" className="text-[10px]">
-                          {rel.type || "related"}
-                        </Badge>
-                        <span className="font-medium">
-                          {rel.targetId ? `Entity #${rel.targetId}` : "?"}
-                        </span>
+                        <span className="font-medium">{rel.sourceId ? `Entity #${rel.sourceId}` : "?"}</span>
+                        <Badge variant="outline" className="text-[10px]">{rel.type || "related"}</Badge>
+                        <span className="font-medium">{rel.targetId ? `Entity #${rel.targetId}` : "?"}</span>
                       </div>
                       {typeof rel.confidence === "number" && (
-                        <span className="text-muted-foreground">
-                          {(rel.confidence * 100).toFixed(0)}%
-                        </span>
+                        <span className="text-muted-foreground">{(rel.confidence * 100).toFixed(0)}%</span>
                       )}
                     </CardContent>
                   </Card>
@@ -705,7 +675,7 @@ export default function StoryDetailPage() {
             )}
           </TabsContent>
 
-          {/* Tasks Tab */}
+          {/* Tasks */}
           <TabsContent value="tasks" className="mt-4">
             {taskList.length === 0 ? (
               <Card>
@@ -715,18 +685,8 @@ export default function StoryDetailPage() {
                   <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
                     Click "Re-evaluate" to analyze story gaps and auto-generate research tasks.
                   </p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="mt-3"
-                    onClick={runReevaluate}
-                    disabled={reevaluating}
-                  >
-                    {reevaluating ? (
-                      <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                    ) : (
-                      <RefreshCw className="h-3 w-3 mr-1" />
-                    )}
+                  <Button size="sm" variant="outline" className="mt-3" onClick={runReevaluate} disabled={reevaluating}>
+                    {reevaluating ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
                     Re-evaluate
                   </Button>
                 </CardContent>
@@ -740,12 +700,8 @@ export default function StoryDetailPage() {
                         <div className="min-w-0">
                           <p className="text-sm font-medium">{task.objective}</p>
                           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                            <Badge className={priorityColors[task.priority] || ""}>
-                              {task.priority}
-                            </Badge>
-                            <Badge variant="outline" className="text-[10px] capitalize">
-                              {task.status.replace("_", " ")}
-                            </Badge>
+                            <Badge className={priorityColors[task.priority] || ""}>{task.priority}</Badge>
+                            <Badge variant="outline" className="text-[10px] capitalize">{task.status.replace("_", " ")}</Badge>
                           </div>
                         </div>
                       </div>
@@ -756,61 +712,8 @@ export default function StoryDetailPage() {
             )}
           </TabsContent>
 
-          {/* Briefs Tab */}
+          {/* ─── BRIEFS TAB ─── */}
           <TabsContent value="briefs" className="mt-4 space-y-4">
-            {/* Generate Brief Controls */}
-            <Card>
-              <CardContent className="py-4">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                  <FileOutput className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span className="text-sm font-medium shrink-0">Generate Brief</span>
-
-                  <Select value={selectedMode} onValueChange={setSelectedMode}>
-                    <SelectTrigger className="w-[140px] h-8 text-xs">
-                      <SelectValue placeholder="Mode" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="full">Full</SelectItem>
-                      <SelectItem value="partial">Partial</SelectItem>
-                      <SelectItem value="since_last">Since Last</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
-                    <SelectTrigger className="w-[180px] h-8 text-xs">
-                      <SelectValue placeholder="Template (optional)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">No template</SelectItem>
-                      {templates.map((t) => (
-                        <SelectItem key={t.id} value={String(t.id)}>
-                          {t.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  <Button
-                    size="sm"
-                    onClick={handleGenerateBrief}
-                    disabled={generatingBrief || evidenceList.length === 0}
-                  >
-                    {generatingBrief ? (
-                      <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                    ) : (
-                      <Newspaper className="h-3 w-3 mr-1" />
-                    )}
-                    Generate
-                  </Button>
-                </div>
-                {evidenceList.length === 0 && (
-                  <p className="text-xs text-muted-foreground mt-2 ml-7">
-                    Attach evidence before generating a brief.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
             {/* Briefs List */}
             {briefList.length === 0 ? (
               <Card>
@@ -841,9 +744,7 @@ export default function StoryDetailPage() {
                                 {brief.createdAt ? new Date(brief.createdAt).toLocaleDateString() : ""}
                               </span>
                               {brief.llmModel && (
-                                <span className="text-[10px] text-muted-foreground">
-                                  {brief.llmModel}
-                                </span>
+                                <span className="text-[10px] text-muted-foreground">{brief.llmModel}</span>
                               )}
                             </div>
                           </div>
@@ -853,11 +754,7 @@ export default function StoryDetailPage() {
                             className="h-6 w-6 p-0"
                             onClick={() => setExpandedBriefId(isExpanded ? null : brief.id)}
                           >
-                            {isExpanded ? (
-                              <ChevronUp className="h-4 w-4" />
-                            ) : (
-                              <ChevronDown className="h-4 w-4" />
-                            )}
+                            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                           </Button>
                         </div>
 
@@ -905,7 +802,7 @@ export default function StoryDetailPage() {
             )}
           </TabsContent>
 
-          {/* Gaps Tab */}
+          {/* Gaps */}
           <TabsContent value="gaps" className="mt-4">
             {!gaps || gaps.length === 0 ? (
               <Card>
@@ -915,18 +812,8 @@ export default function StoryDetailPage() {
                   <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
                     Click "Re-evaluate" to analyze what this story knows and what it still needs to find out.
                   </p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="mt-3"
-                    onClick={runReevaluate}
-                    disabled={reevaluating}
-                  >
-                    {reevaluating ? (
-                      <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                    ) : (
-                      <RefreshCw className="h-3 w-3 mr-1" />
-                    )}
+                  <Button size="sm" variant="outline" className="mt-3" onClick={runReevaluate} disabled={reevaluating}>
+                    {reevaluating ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
                     Re-evaluate
                   </Button>
                 </CardContent>
@@ -937,20 +824,12 @@ export default function StoryDetailPage() {
                   <Card key={i}>
                     <CardContent className="py-3">
                       <div className="flex items-center gap-2 mb-1">
-                        <Badge className={severityColors[gap.severity] || ""}>
-                          {gap.severity}
-                        </Badge>
-                        <span className="text-xs font-medium capitalize">
-                          {gap.type.replace("_", " ")}
-                        </span>
+                        <Badge className={severityColors[gap.severity] || ""}>{gap.severity}</Badge>
+                        <span className="text-xs font-medium capitalize">{gap.type.replace("_", " ")}</span>
                       </div>
                       <p className="text-sm">{gap.description}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {gap.details}
-                      </p>
-                      <p className="text-xs text-indigo-400 mt-1.5 font-medium">
-                        {gap.suggestedQuestion}
-                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">{gap.details}</p>
+                      <p className="text-xs text-indigo-400 mt-1.5 font-medium">{gap.suggestedQuestion}</p>
                     </CardContent>
                   </Card>
                 ))}
