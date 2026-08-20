@@ -13,14 +13,14 @@ export async function generateWithAI(
   prompt: string,
   options: AIGenerationOptions = {},
 ): Promise<string> {
-  const apiKey = process.env.CEREBRAS_API_KEY;
-  const model = process.env.CEREBRAS_MODEL;
+  const apiKey = process.env.API_KEY;
+  const model = process.env.MODEL;
 
   if (!apiKey) {
-    throw new Error("CEREBRAS_API_KEY not configured");
+    throw new Error("API_KEY not configured");
   }
   if (!model) {
-    throw new Error("CEREBRAS_MODEL not configured — expected gpt-oss-120b");
+    throw new Error("MODEL not configured — expected labs-leanstral-1-5");
   }
 
   const temperature =
@@ -48,7 +48,7 @@ export async function generateWithAI(
       );
 
       const response = await fetch(
-        "https://api.cerebras.ai/v1/chat/completions",
+        "https://api.mistral.ai/v1/chat/completions",
         {
           method: "POST",
           signal: controller.signal,
@@ -74,9 +74,14 @@ export async function generateWithAI(
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(
-          `[ai/client] HTTP ${response.status} — ${errorText}`,
-        );
+        const category = response.status === 400 || response.status === 413
+          ? "request_rejected"
+          : response.status === 429
+            ? "rate_limited"
+            : response.status >= 500
+              ? "provider_error"
+              : "http_error";
+        console.error(`[ai/client] ${category} HTTP ${response.status} — ${errorText.slice(0, 500)}`);
         if (response.status === 429) {
           const retryAfter = parseInt(
             response.headers.get("retry-after") || "60",
@@ -87,7 +92,7 @@ export async function generateWithAI(
           await sleep(retryAfter * 1000);
           continue;
         }
-        throw new Error(`Cerebras API error ${response.status}: ${errorText}`);
+        throw new Error(`Mistral API error (${category}, HTTP ${response.status})`);
       }
 
       const data = await response.json();
@@ -107,6 +112,10 @@ export async function generateWithAI(
         console.error(
           `[ai/client] ⏱️ Attempt ${attempt} ABORTED after ${timeoutMs}ms`,
         );
+        lastError = new Error(`Mistral request timeout after ${timeoutMs}ms`);
+      } else if (err.name === "TypeError" && /fetch failed/i.test(err.message || "")) {
+        console.error(`[ai/client] connection_failure: unable to reach Mistral`);
+        lastError = new Error("Mistral connection failure");
       } else {
         console.error(
           `[ai/client] ❌ Attempt ${attempt}/${maxRetries} failed:`,

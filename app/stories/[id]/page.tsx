@@ -143,11 +143,14 @@ export default function StoryDetailPage() {
     try {
       const res = await fetch(`/api/stories/${id}/reevaluate`, { method: "POST" });
       const d = await res.json();
-      if (d.success) {
+      if (d.regeneration?.success) {
         setGaps(d.gaps || []);
         setGapSummary(d.gapSummary || null);
         setTasksGenerated(d.tasksGenerated || 0);
         await fetchStory();
+        if (!d.success) {
+          alert(d.error || d.analysis?.error || "Story regenerated, but gap analysis failed");
+        }
       } else {
         alert(d.error || "Re-evaluation failed");
       }

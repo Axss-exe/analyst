@@ -7,7 +7,12 @@
 import { db } from "@/db";
 import { researchTasks, stories } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { analyzeStoryGaps, type StoryGap, type GapAnalysis } from "./story-gaps";
+import {
+  analyzeStoryGaps,
+  isResearchQuestionSupported,
+  type StoryGap,
+  type GapAnalysis,
+} from "./story-gaps";
 
 export interface GeneratedTask {
   id?: number;
@@ -16,6 +21,15 @@ export interface GeneratedTask {
   storyId: number;
   reason: string;
   gapType: string;
+}
+
+export function filterResolvedGaps(
+  gaps: StoryGap[],
+  answeredObjectives: Set<string>,
+): StoryGap[] {
+  return gaps.filter((gap) =>
+    !answeredObjectives.has(gap.suggestedQuestion.toLowerCase().trim()),
+  );
 }
 
 /**
@@ -90,6 +104,49 @@ export async function generateTasksFromGaps(
   }
 
   return generated;
+}
+
+export async function reconcileResearchTasks(
+  storyId: number,
+  existingAnalysis?: GapAnalysis,
+): Promise<{ analysis: GapAnalysis; tasks: GeneratedTask[] }> {
+  const analysis = existingAnalysis || (await analyzeStoryGaps(storyId));
+  const existingTasks = db
+    .select()
+    .from(researchTasks)
+    .where(eq(researchTasks.storyId, storyId))
+    .all();
+
+  const supportedObjectives = new Set<string>();
+  for (const task of existingTasks) {
+    const answered = await isResearchQuestionSupported(storyId, task.objective, analysis);
+    if (!answered) continue;
+    supportedObjectives.add(task.objective.toLowerCase().trim());
+    if (task.status !== "completed") {
+      db.update(researchTasks)
+        .set({
+          status: "completed",
+          completionNotes: "Resolved by current story evidence during re-evaluation.",
+        })
+        .where(eq(researchTasks.id, task.id))
+        .run();
+    }
+  }
+
+  const unresolvedGaps = filterResolvedGaps(analysis.gaps, supportedObjectives);
+  const reconciledAnalysis = {
+    ...analysis,
+    gaps: unresolvedGaps,
+    summary: {
+      critical: unresolvedGaps.filter((gap) => gap.severity === "critical").length,
+      high: unresolvedGaps.filter((gap) => gap.severity === "high").length,
+      medium: unresolvedGaps.filter((gap) => gap.severity === "medium").length,
+      low: unresolvedGaps.filter((gap) => gap.severity === "low").length,
+    },
+  };
+
+  const tasks = await generateTasksFromGaps(storyId, reconciledAnalysis);
+  return { analysis: reconciledAnalysis, tasks };
 }
 
 /**

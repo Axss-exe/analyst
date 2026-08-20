@@ -19,6 +19,127 @@ export interface StoryProposal {
   reasoning: string;
 }
 
+export interface StoryRegenerationEvidence {
+  id: number;
+  title: string;
+  source: string;
+  content: string;
+  summary: string;
+  facts: Array<{ subject: string; predicate: string; object: string; confidence: number }>;
+  entities: Array<{ name: string; type: string }>;
+  relationships: Array<{ source: string; target: string; type: string; confidence: number }>;
+  timelineEvents: Array<{ date: string; title: string; description: string }>;
+  events: Array<{ name: string; description: string | null; temporalInfo: string | null }>;
+  programs: Array<{ name: string; description: string | null }>;
+  problems: Array<{ name: string; description: string | null; severity: string | null }>;
+  outcomes: Array<{ name: string; description: string | null; metric: string | null }>;
+  actors: Array<{ name: string; actorType: string | null }>;
+  assessment: {
+    hasProblem: boolean;
+    hasIntervention: boolean;
+    hasOutcome: boolean;
+    hasProgram: boolean;
+    hasEvent: boolean;
+    narrativeCompletenessScore: number | null;
+    assessmentReason: string | null;
+  } | null;
+}
+
+export async function regenerateStoryFromEvidence(
+  storyTitle: string,
+  storyOverview: string,
+  evidenceItems: StoryRegenerationEvidence[],
+): Promise<Pick<StoryProposal, "title" | "overview" | "confidence">> {
+  const evidenceText = evidenceItems
+    .map((e, i) => {
+      const facts = e.facts.length > 0
+        ? e.facts.map((f) => `${f.subject} ${f.predicate} ${f.object} (${f.confidence.toFixed(2)})`).join("; ")
+        : "None";
+      const entities = e.entities.length > 0
+        ? e.entities.map((entity) => `${entity.name} [${entity.type}]`).join(", ")
+        : "None";
+      const relationships = e.relationships.length > 0
+        ? e.relationships.map((r) => `${r.source} -${r.type}-> ${r.target} (${r.confidence.toFixed(2)})`).join("; ")
+        : "None";
+      const timeline = e.timelineEvents.length > 0
+        ? e.timelineEvents.map((event) => `${event.date}: ${event.title} - ${event.description}`).join("; ")
+        : "None";
+      const intelligence = [
+        ...e.programs.map((program) => `Program: ${program.name}${program.description ? ` (${program.description})` : ""}`),
+        ...e.events.map((event) => `Event: ${event.name}${event.description ? ` (${event.description})` : ""}${event.temporalInfo ? ` [${event.temporalInfo}]` : ""}`),
+        ...e.problems.map((problem) => `Problem: ${problem.name}${problem.description ? ` (${problem.description})` : ""}${problem.severity ? ` [${problem.severity}]` : ""}`),
+        ...e.outcomes.map((outcome) => `Outcome: ${outcome.name}${outcome.description ? ` (${outcome.description})` : ""}${outcome.metric ? ` [metric: ${outcome.metric}]` : ""}`),
+        ...e.actors.map((actor) => `Actor: ${actor.name}${actor.actorType ? ` [${actor.actorType}]` : ""}`),
+      ].join("; ") || "None";
+      const assessment = e.assessment
+        ? `problem=${e.assessment.hasProblem}, intervention=${e.assessment.hasIntervention}, outcome=${e.assessment.hasOutcome}, program=${e.assessment.hasProgram}, event=${e.assessment.hasEvent}, completeness=${e.assessment.narrativeCompletenessScore ?? "unknown"}, reason=${e.assessment.assessmentReason || "none"}`
+        : "None";
+
+      const card = `[${i + 1}] ${e.title}
+    Source: ${e.source}
+    Evidence summary: ${e.summary.slice(0, 500)}
+    Content excerpt: ${e.content.slice(0, 700)}
+    Facts: ${facts}
+    Entities: ${entities}
+    Relationships: ${relationships}
+    Timeline: ${timeline}
+    Extracted intelligence: ${intelligence}
+    Assessment: ${assessment}`;
+
+      return card.length > 2400 ? `${card.slice(0, 2390)}...` : card;
+    })
+    .join("\n\n---\n\n");
+
+  const prompt = `You are re-evaluating an existing intelligence story using its authoritative current evidence set.
+
+Existing story title: ${storyTitle}
+Existing story overview: ${storyOverview}
+
+CURRENT AUTHORITATIVE EVIDENCE (${evidenceItems.length} items):
+${evidenceText}
+
+Reassess the story using all current evidence, including newly attached evidence. Incorporate corroboration and contradictions. Do not invent facts or connections not supported by the evidence. Synthesize the evidence into one coherent story rather than summarizing documents individually. Confidence must reflect the strength, consistency, and completeness of the evidence.
+
+Respond with only valid JSON in this exact format:
+{
+  "title": "Updated specific intelligence story title",
+  "overview": "A synthesized analytical overview explaining the narrative arc, actors, chronology, significance, corroboration, contradictions, and remaining uncertainty.",
+  "confidence": 0.0
+}`;
+
+  const response = await generateWithAI(prompt, {
+    systemPrompt:
+      "You are a senior intelligence analyst reassessing an existing story. Use only the supplied evidence and extracted intelligence.",
+    temperature: 0.2,
+    maxTokens: 2048,
+  });
+
+  const jsonMatch = response.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error("Story regeneration returned invalid JSON");
+  }
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch {
+    throw new Error("Story regeneration returned invalid JSON");
+  }
+
+  const title = typeof parsed.title === "string" ? parsed.title.trim() : "";
+  const overview = typeof parsed.overview === "string" ? parsed.overview.trim() : "";
+  const confidence = typeof parsed.confidence === "number" ? parsed.confidence : NaN;
+  if (!title || !overview || !Number.isFinite(confidence)) {
+    throw new Error("Story regeneration response is missing title, overview, or confidence");
+  }
+
+  return {
+    title,
+    overview,
+    confidence: Math.max(0, Math.min(1, confidence)),
+  };
+}
+
 export async function proposeStoryFromEvidence(
   evidenceCluster: Array<{
     id: number;

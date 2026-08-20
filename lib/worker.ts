@@ -910,7 +910,7 @@ async function rebuildStoryGraph(allEvidenceIds: number[]): Promise<void> {
   }
 }
 
-async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
+export async function buildSimpleStoryGraph(allEvidenceIds: number[]): Promise<void> {
   console.log(`[worker] Building simple story graph for ${allEvidenceIds.length} evidence items...`);
 
   const evidenceProgramsMap = new Map<number, number[]>();

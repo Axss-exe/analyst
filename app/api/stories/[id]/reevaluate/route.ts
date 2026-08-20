@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeStoryGaps } from "@/lib/story-gaps";
-import { generateTasksFromGaps } from "@/lib/story-tasks";
-import { db } from "@/db/client";
-import { stories } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { reconcileResearchTasks } from "@/lib/story-tasks";
+import { regenerateExistingStory } from "@/lib/story-regeneration";
 
 export async function POST(
   request: NextRequest,
@@ -15,31 +13,47 @@ export async function POST(
       return NextResponse.json({ error: "Invalid story ID" }, { status: 400 });
     }
 
-    const [story] = db
-      .select()
-      .from(stories)
-      .where(eq(stories.id, id))
-      .all();
-
-    if (!story) {
+    let regeneratedStory;
+    try {
+      regeneratedStory = await regenerateExistingStory(id);
+    } catch (error: any) {
+      const status = error.message === "Story not found" ? 404 : 500;
       return NextResponse.json(
-        { error: "Story not found" },
-        { status: 404 },
+        { success: false, regeneration: { success: false }, error: error.message || "Story regeneration failed" },
+        { status },
       );
     }
 
-    const gaps = await analyzeStoryGaps(id);
-    const tasks = await generateTasksFromGaps(id, gaps);
+    try {
+      const gaps = await analyzeStoryGaps(id);
+      const reconciled = await reconcileResearchTasks(id, gaps);
+      const tasks = reconciled.tasks;
 
-    return NextResponse.json({
-      success: true,
-      storyId: id,
-      evidenceCount: gaps.evidenceCount,
-      gaps: gaps.gaps,
-      gapSummary: gaps.summary,
-      tasksGenerated: tasks.length,
-      tasks,
-    });
+      return NextResponse.json({
+        success: true,
+        storyId: id,
+        story: regeneratedStory,
+        regeneration: { success: true },
+        evidenceCount: reconciled.analysis.evidenceCount,
+        gaps: reconciled.analysis.gaps,
+        gapSummary: reconciled.analysis.summary,
+        tasksGenerated: tasks.length,
+        tasks,
+      });
+    } catch (error: any) {
+      console.error("[reevaluate] gap/task processing error:", error);
+      return NextResponse.json(
+        {
+          success: false,
+          storyId: id,
+          story: regeneratedStory,
+          regeneration: { success: true },
+          analysis: { success: false, error: error.message || "Gap analysis failed" },
+          error: "Story regenerated, but gap and task processing failed",
+        },
+        { status: 207 },
+      );
+    }
   } catch (error: any) {
     console.error("[reevaluate] error:", error);
     return NextResponse.json(

@@ -1,14 +1,18 @@
 /**
- * Cerebras rate limiter with request queue.
- * Models: gemma-4-31b, gpt-oss-120b
+ * Provider rate limiter with request queue.
  * Limits: 5 req/min, 30,000 tokens/min
  */
+
+interface QueuedRequest {
+  tokens: number;
+  resolve: () => void;
+}
 
 interface RateLimitState {
   requestsThisMinute: number;
   tokensThisMinute: number;
   windowStart: number;
-  queue: Array<() => void>;
+  queue: QueuedRequest[];
   isProcessing: boolean;
 }
 
@@ -58,11 +62,23 @@ async function processQueue() {
       resetWindowIfNeeded();
     }
 
-    // Check TPM
-    // We need to peek at the next request's token count
-    // For simplicity, we process one at a time and check after
-    const resolve = state.queue.shift();
-    if (!resolve) continue;
+    const next = state.queue[0];
+    if (!next) continue;
+
+    if (next.tokens > MAX_TPM) {
+      state.queue.shift();
+      next.resolve();
+      continue;
+    }
+
+    if (state.tokensThisMinute + next.tokens > MAX_TPM) {
+      const wait = msUntilNextWindow() + 100;
+      console.log(`[rate-limiter] TPM limit (${MAX_TPM}) would be exceeded. Waiting ${wait}ms for window reset...`);
+      await sleep(wait);
+      continue;
+    }
+
+    state.queue.shift();
 
     // Enforce minimum gap between requests
     const now = Date.now();
@@ -74,7 +90,7 @@ async function processQueue() {
     }
 
     lastRequestTime = Date.now();
-    resolve();
+    next.resolve();
 
     // Small yield to allow the request to increment counters before next loop
     await sleep(100);
@@ -84,15 +100,19 @@ async function processQueue() {
 }
 
 export async function acquireSlot(tokens: number): Promise<void> {
+  if (tokens > MAX_TPM) {
+    throw new Error(`AI request exceeds configured token limit: ${tokens} > ${MAX_TPM}`);
+  }
+
   return new Promise((resolve) => {
-    state.queue.push(() => {
+    state.queue.push({ tokens, resolve: () => {
       state.requestsThisMinute++;
       state.tokensThisMinute += tokens;
       console.log(
         `[rate-limiter] Slot acquired. RPM: ${state.requestsThisMinute}/${MAX_RPM}, TPM: ${state.tokensThisMinute}/${MAX_TPM}, Tokens: ${tokens}`,
       );
       resolve();
-    });
+    }});
     processQueue();
   });
 }

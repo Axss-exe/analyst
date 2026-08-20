@@ -1,5 +1,5 @@
 /**
- * Rough token estimator for Cerebras API budgeting.
+ * Rough token estimator for provider request budgeting.
  * English text: ~1.3 tokens per word, or ~0.25 tokens per character.
  * This is conservative (overestimates slightly) to stay under limits.
  */

@@ -64,6 +64,66 @@ export interface GapAnalysis {
   };
 }
 
+export interface EntityDescriptor {
+  id: number;
+  name: string;
+  aliases?: string | null;
+}
+
+export interface FactDescriptor {
+  subject: string;
+  predicate: string;
+  object: string;
+}
+
+function normalizeText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function entityMatchesText(entity: EntityDescriptor, value: string): boolean {
+  const normalizedValue = normalizeText(value);
+  const names = [entity.name];
+  try {
+    const aliases = entity.aliases ? JSON.parse(entity.aliases) : [];
+    if (Array.isArray(aliases)) {
+      names.push(...aliases.filter((alias): alias is string => typeof alias === "string"));
+    }
+  } catch {
+    // Ignore malformed aliases and use the canonical name.
+  }
+  return names.some((name) => {
+    const normalizedName = normalizeText(name);
+    return normalizedName.length > 2 && (
+      normalizedValue.includes(normalizedName) || normalizedName.includes(normalizedValue)
+    );
+  });
+}
+
+function isMeaningfulRelationshipPredicate(predicate: string): boolean {
+  return /approv|authoriz|provid|contribut|fund|financ|support|implement|manage|announc|negotiat|sign|align|target|operat|oversee|deliver|issue|receive|release|allocat|require|affect|impact|cause|result|connect|relat|partner|collaborat|assist|invest|loan|disburs|commit/i.test(predicate);
+}
+
+export function factSupportsEntityPair(
+  fact: FactDescriptor,
+  entityA: EntityDescriptor,
+  entityB: EntityDescriptor,
+): boolean {
+  if (!isMeaningfulRelationshipPredicate(fact.predicate)) return false;
+  const subjectA = entityMatchesText(entityA, fact.subject);
+  const subjectB = entityMatchesText(entityB, fact.subject);
+  const objectA = entityMatchesText(entityA, fact.object);
+  const objectB = entityMatchesText(entityB, fact.object);
+  return (subjectA && objectB) || (subjectB && objectA);
+}
+
+export function factEstablishesActorRole(
+  fact: FactDescriptor,
+  actor: EntityDescriptor,
+): boolean {
+  if (!isMeaningfulRelationshipPredicate(fact.predicate)) return false;
+  return entityMatchesText(actor, fact.subject);
+}
+
 /**
  * Analyze a story for knowledge gaps.
  */
@@ -213,11 +273,23 @@ export async function analyzeStoryGaps(storyId: number): Promise<GapAnalysis> {
       coveredPairs.add(pair);
     }
 
+    const entityRows = db
+      .select({ id: entities.id, name: entities.name, aliases: entities.aliases })
+      .from(entities)
+      .where(inArray(entities.id, entityIds))
+      .all();
+
     let missingCount = 0;
     for (let i = 0; i < entityIds.length && missingCount < 5; i++) {
       for (let j = i + 1; j < entityIds.length && missingCount < 5; j++) {
         const pair = `${Math.min(entityIds[i], entityIds[j])}-${Math.max(entityIds[i], entityIds[j])}`;
-        if (!coveredPairs.has(pair)) {
+        const entityA = entityRows.find((entity) => entity.id === entityIds[i]);
+        const entityB = entityRows.find((entity) => entity.id === entityIds[j]);
+        const factSupportsPair = entityA && entityB && factRows.some((fact) =>
+          factSupportsEntityPair(fact, entityA, entityB),
+        );
+
+        if (!coveredPairs.has(pair) && !factSupportsPair) {
           missingCount++;
           const entA = db
             .select({ name: entities.name })
@@ -300,6 +372,13 @@ export async function analyzeStoryGaps(storyId: number): Promise<GapAnalysis> {
         .from(actors)
         .where(eq(actors.id, actorId))
         .get();
+      const actorEntity = actor
+        ? { id: actorId, name: actor.name, aliases: null }
+        : null;
+      const roleEstablished = actorEntity && factRows.some((fact) =>
+        factEstablishesActorRole(fact, actorEntity),
+      );
+      if (roleEstablished) continue;
       gaps.push({
         type: "actor_gap",
         severity: "low",
@@ -375,4 +454,53 @@ export async function analyzeStoryGaps(storyId: number): Promise<GapAnalysis> {
   };
 
   return { storyId, evidenceCount: evidenceIds.length, gaps, summary };
+}
+
+export async function isResearchQuestionSupported(
+  storyId: number,
+  question: string,
+  currentAnalysis?: GapAnalysis,
+): Promise<boolean> {
+  const relationshipMatch = question.match(
+    /^What is the relationship between (.+) and (.+)\?$/i,
+  );
+  if (relationshipMatch) {
+    const links = db
+      .select({ evidenceId: storyEvidence.evidenceId })
+      .from(storyEvidence)
+      .where(eq(storyEvidence.storyId, storyId))
+      .all();
+    const evidenceIds = links.map((link) => link.evidenceId);
+    const entityRows = db.select().from(entities).all();
+    const entityA = entityRows.find((entity) => entityMatchesText(entity, relationshipMatch[1]));
+    const entityB = entityRows.find((entity) => entityMatchesText(entity, relationshipMatch[2]));
+    if (!entityA || !entityB) return false;
+    const factsForStory = db.select().from(facts).where(inArray(facts.evidenceId, evidenceIds)).all();
+    const pair = `${Math.min(entityA.id, entityB.id)}-${Math.max(entityA.id, entityB.id)}`;
+    const relationship = db.select().from(relationships).all().some((row) =>
+      `${Math.min(row.sourceId, row.targetId)}-${Math.max(row.sourceId, row.targetId)}` === pair,
+    );
+    return relationship || factsForStory.some((fact) => factSupportsEntityPair(fact, entityA, entityB));
+  }
+
+  const actorMatch = question.match(
+    /^What specific role, authority, or actions does (.+) have in the programs or events described\?$/i,
+  );
+  if (actorMatch) {
+    const links = db
+      .select({ evidenceId: storyEvidence.evidenceId })
+      .from(storyEvidence)
+      .where(eq(storyEvidence.storyId, storyId))
+      .all();
+    const actor = db.select().from(actors).all().find((row) => entityMatchesText(row, actorMatch[1]));
+    if (!actor) return false;
+    const factsForStory = db.select().from(facts).where(inArray(facts.evidenceId, links.map((link) => link.evidenceId))).all();
+    return factsForStory.some((fact) => factEstablishesActorRole(fact, {
+      id: actor.id,
+      name: actor.name,
+      aliases: null,
+    }));
+  }
+
+  return false;
 }
