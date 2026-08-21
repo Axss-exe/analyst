@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,7 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Search, Users, ArrowRight } from "lucide-react";
+import { Plus, Search, Users, ArrowRight, FileDown } from "lucide-react";
 
 interface EntityItem {
   id: number;
@@ -45,6 +46,7 @@ export default function EntitiesPage() {
   const [entities, setEntities] = useState<EntityItem[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [selectedEntityIds, setSelectedEntityIds] = useState<number[]>([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -64,6 +66,57 @@ export default function EntitiesPage() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     fetchEntities(search);
+  };
+
+  const displayedEntityIds = entities.map((entity) => entity.id);
+  const allDisplayedSelected =
+    displayedEntityIds.length > 0 &&
+    displayedEntityIds.every((id) => selectedEntityIds.includes(id));
+
+  const toggleEntitySelection = (id: number, checked: boolean) => {
+    setSelectedEntityIds((current) =>
+      checked
+        ? current.includes(id)
+          ? current
+          : [...current, id]
+        : current.filter((selectedId) => selectedId !== id),
+    );
+  };
+
+  const toggleAllDisplayed = (checked: boolean) => {
+    setSelectedEntityIds((current) => {
+      if (checked) {
+        return Array.from(new Set([...current, ...displayedEntityIds]));
+      }
+      return current.filter((id) => !displayedEntityIds.includes(id));
+    });
+  };
+
+  const exportEntities = async (all = false) => {
+    const response = await fetch("/api/exports/entities", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(all ? { all: true } : { ids: selectedEntityIds }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      window.alert(data?.error || "Failed to export entities");
+      return;
+    }
+
+    const data = await response.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `rita-entity-export${all ? "-all" : ""}-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -95,6 +148,31 @@ export default function EntitiesPage() {
           </Button>
         </form>
 
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">
+            {selectedEntityIds.length} selected
+          </span>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={selectedEntityIds.length === 0}
+              onClick={() => exportEntities()}
+            >
+              <FileDown className="mr-1 h-4 w-4" />
+              Export Selected
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => exportEntities(true)}
+            >
+              <FileDown className="mr-1 h-4 w-4" />
+              Export All
+            </Button>
+          </div>
+        </div>
+
         {loading ? (
           <div className="flex h-64 items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -111,6 +189,15 @@ export default function EntitiesPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-[48px]">
+                    <Checkbox
+                      aria-label="Select all displayed entities"
+                      checked={allDisplayedSelected}
+                      onCheckedChange={(checked) =>
+                        toggleAllDisplayed(checked === true)
+                      }
+                    />
+                  </TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Aliases</TableHead>
@@ -125,6 +212,15 @@ export default function EntitiesPage() {
                     className="cursor-pointer"
                     onClick={() => router.push(`/entities/${ent.id}`)}
                   >
+                    <TableCell onClick={(event) => event.stopPropagation()}>
+                      <Checkbox
+                        aria-label={`Select entity ${ent.id}`}
+                        checked={selectedEntityIds.includes(ent.id)}
+                        onCheckedChange={(checked) =>
+                          toggleEntitySelection(ent.id, checked === true)
+                        }
+                      />
+                    </TableCell>
                     <TableCell className="font-medium">{ent.name}</TableCell>
                     <TableCell>
                       <Badge

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,6 +32,7 @@ export default function BriefsPage() {
   const [briefs, setBriefs] = useState<BriefItem[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [selectedBriefIds, setSelectedBriefIds] = useState<number[]>([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -50,6 +52,57 @@ export default function BriefsPage() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     fetchBriefs(search);
+  };
+
+  const displayedBriefIds = briefs.map((brief) => brief.id);
+  const allDisplayedSelected =
+    displayedBriefIds.length > 0 &&
+    displayedBriefIds.every((id) => selectedBriefIds.includes(id));
+
+  const toggleBriefSelection = (id: number, checked: boolean) => {
+    setSelectedBriefIds((current) =>
+      checked
+        ? current.includes(id)
+          ? current
+          : [...current, id]
+        : current.filter((selectedId) => selectedId !== id),
+    );
+  };
+
+  const toggleAllDisplayed = (checked: boolean) => {
+    setSelectedBriefIds((current) => {
+      if (checked) {
+        return Array.from(new Set([...current, ...displayedBriefIds]));
+      }
+      return current.filter((id) => !displayedBriefIds.includes(id));
+    });
+  };
+
+  const exportSelected = async () => {
+    const response = await fetch("/api/exports/briefs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: selectedBriefIds }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      window.alert(data?.error || "Failed to export briefs");
+      return;
+    }
+
+    const data = await response.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `rita-brief-export-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -78,6 +131,21 @@ export default function BriefsPage() {
           </Button>
         </form>
 
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">
+            {selectedBriefIds.length} selected
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={selectedBriefIds.length === 0}
+            onClick={exportSelected}
+          >
+            <FileDown className="mr-1 h-4 w-4" />
+            Export Selected
+          </Button>
+        </div>
+
         {loading ? (
           <div className="flex h-64 items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -99,6 +167,15 @@ export default function BriefsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-[48px]">
+                    <Checkbox
+                      aria-label="Select all displayed briefs"
+                      checked={allDisplayedSelected}
+                      onCheckedChange={(checked) =>
+                        toggleAllDisplayed(checked === true)
+                      }
+                    />
+                  </TableHead>
                   <TableHead>Headline</TableHead>
                   <TableHead>Story</TableHead>
                   <TableHead>Version</TableHead>
@@ -114,6 +191,15 @@ export default function BriefsPage() {
                     className="cursor-pointer"
                     onClick={() => router.push(`/briefs/${brief.id}`)}
                   >
+                    <TableCell onClick={(event) => event.stopPropagation()}>
+                      <Checkbox
+                        aria-label={`Select brief ${brief.id}`}
+                        checked={selectedBriefIds.includes(brief.id)}
+                        onCheckedChange={(checked) =>
+                          toggleBriefSelection(brief.id, checked === true)
+                        }
+                      />
+                    </TableCell>
                     <TableCell className="font-medium max-w-xs truncate">
                       {brief.headline}
                     </TableCell>
